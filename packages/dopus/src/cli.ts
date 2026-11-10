@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import { parseArgs } from 'node:util'
 import * as p from '@clack/prompts'
 import { runInfraAws } from './infra/aws.js'
+import { runInfraCloudflare } from './infra/cloudflare.js'
 import { InitError } from './init/detect.js'
 import { type InitIO, installArgs, runInit } from './init/run.js'
 import { PRESETS, type PresetId } from './init/templates.js'
@@ -14,6 +15,7 @@ const HELP = `dopus ${VERSION}
 Usage:
   dopus init [options]        Add an AI agent to this Next.js app
   dopus infra aws [options]   Prepare the agent route for AWS Lambda (OpenNext streaming + SST snippet)
+  dopus infra cloudflare      Prepare the app for Cloudflare Workers (@opennextjs/cloudflare)
 
 Options for init:
   --provider <id>        openai | anthropic | google
@@ -24,7 +26,7 @@ Options for init:
   --force                Overwrite generated files that already exist
   --cwd <dir>            Project root (default: current directory)
 
-Options for infra aws:
+Options for infra aws / cloudflare:
   -y, --yes              Do not ask before installing @opennextjs/aws
   --no-install           Print the install command instead
   --cwd <dir>            Project root
@@ -132,8 +134,8 @@ async function init(args: string[]) {
 
 async function infra(args: string[]) {
   const [target, ...rest] = args
-  if (target !== 'aws') {
-    throw new InitError('Usage: dopus infra aws (Cloudflare and GCP are planned).')
+  if (target !== 'aws' && target !== 'cloudflare') {
+    throw new InitError('Usage: dopus infra aws | dopus infra cloudflare (GCP is planned).')
   }
   const { values } = parseArgs({
     args: rest,
@@ -145,8 +147,9 @@ async function infra(args: string[]) {
     },
     allowNegative: true,
   })
-  p.intro(`dopus ${VERSION} · infra aws`)
-  await runInfraAws(
+  p.intro(`dopus ${VERSION} · infra ${target}`)
+  const run = target === 'aws' ? runInfraAws : runInfraCloudflare
+  await run(
     {
       cwd: values.cwd ?? process.cwd(),
       yes: values.yes,

@@ -67,8 +67,23 @@ export function upsertEnv(content: string, vars: Record<string, string>, replace
 
 /** True if git (or, without git, .gitignore patterns) keeps `.env.local` out of the repo. */
 export function isEnvLocalIgnored(root: string): boolean {
+  return isGitIgnored(root, '.env.local', [
+    '.env.local',
+    '.env*.local',
+    '.env*',
+    '*.local',
+    '.env.*',
+  ])
+}
+
+/** True if git ignores `path`; outside a repo, falls back to exact lines in .gitignore. */
+export function isGitIgnored(
+  root: string,
+  path: string,
+  patterns: string[] = [path, `${path}/`, `/${path}`],
+): boolean {
   try {
-    execFileSync('git', ['check-ignore', '-q', '.env.local'], { cwd: root, stdio: 'ignore' })
+    execFileSync('git', ['check-ignore', '-q', path], { cwd: root, stdio: 'ignore' })
     return true
   } catch (error) {
     // exit 1 = not ignored; anything else (no git, not a repo) → fall back to reading .gitignore
@@ -76,10 +91,8 @@ export function isEnvLocalIgnored(root: string): boolean {
   }
   const gitignore = join(root, '.gitignore')
   if (!existsSync(gitignore)) return false
-  const patterns = readFileSync(gitignore, 'utf8')
+  const lines = readFileSync(gitignore, 'utf8')
     .split(/\r?\n/)
     .map((l) => l.trim())
-  return patterns.some((p) =>
-    ['.env.local', '.env*.local', '.env*', '*.local', '.env.*'].includes(p),
-  )
+  return lines.some((line) => patterns.includes(line))
 }

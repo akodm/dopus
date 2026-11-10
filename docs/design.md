@@ -114,6 +114,17 @@ Verified 2026-11-10 (OpenNext `@opennextjs/aws` 4.1.15, SST `dev` source):
 - `scripts/lambda-emu.mjs` invokes the real OpenNext bundle with Function URL (payload v2) events and the Lambda
   http-integration framing (JSON prelude + 8 NUL bytes). It runs in CI. Real deployments need the user's approval.
 
+## Cloudflare (M6)
+
+Verified 2026-11-10 (`@opennextjs/cloudflare` 1.20.16, wrangler 4.160.0):
+
+- The example's full e2e suite passes on `wrangler dev` (local workerd): `cookies()` inside tools, ownership checks, signed
+  approvals (secret from `.dev.vars` → `process.env`), forged approvals rejected.
+- With `.dev.vars` present, wrangler does not read `.env.local` ("Using secrets defined in .dev.vars"), so
+  `dopus infra cloudflare` offers to copy the provider key and approval secret.
+- One `open-next.config.ts` per app: the command refuses to replace an AWS one.
+- `compatibility_date` is set 30 days back so the installed workerd always supports it.
+
 ## Releasing
 
 1. Bump `packages/dopus/package.json` and `src/version.ts` (a test keeps them equal), add a `CHANGELOG.md` section.

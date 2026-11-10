@@ -207,7 +207,27 @@ Things to know:
 
 `pnpm aws:emu` in this repo builds the example with OpenNext and invokes the Lambda handler locally through a stand-in for the streaming runtime. It checks that the response streams and that tools still read the caller's cookie.
 
-Cloudflare and GCP adapters are planned.
+**Cloudflare Workers (OpenNext).**
+
+```bash
+pnpm dopus infra cloudflare
+```
+
+The command writes `open-next.config.ts` (`defineCloudflareConfig`), `wrangler.jsonc` (`nodejs_compat`) and `.dev.vars`. It also adds `cf:preview` and `cf:deploy` scripts, git-ignores `.open-next`, `.dev.vars` and `.wrangler`, and installs `@opennextjs/cloudflare` and `wrangler`.
+
+Wrangler reads `.dev.vars` instead of `.env.local`. So the command offers to copy your API key and `DOPUS_APPROVAL_SECRET` into `.dev.vars` for the local preview. The values are never printed.
+
+For production, set the same two values with `npx wrangler secret put`.
+
+Things to know:
+
+- **No wall-clock limit.** A Worker can keep streaming as long as the client stays connected, and waiting on the LLM does not count as CPU time.
+- **CPU time.** Rendering and tool code do count toward CPU time. Paid plans allow 30 s by default and up to 5 min with `limits.cpu_ms`. The free plan allows 10 ms per request, which a Next.js app usually exceeds.
+- **Node runtime.** OpenNext runs the Node.js runtime, so remove `export const runtime = 'edge'`.
+
+`pnpm cf:e2e` in this repo copies the example and runs `dopus infra cloudflare` on it. It then builds the copy, serves it with `wrangler dev` (local workerd) and runs the same e2e suite against it, covering cookies, ownership checks and signed approvals.
+
+A GCP (Cloud Run) adapter is planned.
 
 ## Providers
 
@@ -229,7 +249,7 @@ dopus is at 0.1, so expect breaking changes before 1.0. It is tested on Next.js 
 
 Planned next:
 
-- infra adapters for Cloudflare and GCP (AWS is available via `dopus infra aws`);
+- a GCP (Cloud Run) adapter (AWS and Cloudflare are available via `dopus infra`);
 - `dopus prompts diff` to compare your copies with newer templates;
 - tool input schemas inferred from TypeScript types.
 
@@ -241,6 +261,7 @@ pnpm build && pnpm lint && pnpm typecheck && pnpm test
 pnpm example:build && pnpm example:e2e   # next start + scripted model
 pnpm smoke                               # packed tarball → fresh app → dopus init → next build
 pnpm aws:emu                             # OpenNext build → local Lambda streaming invoke
+pnpm cf:e2e                              # dopus infra cloudflare → wrangler dev (workerd) → e2e
 ```
 
 Design notes: [`docs/design.md`](docs/design.md).

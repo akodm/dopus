@@ -4,6 +4,9 @@
 
 - `dopus infra aws`: writes `open-next.config.ts` with Lambda response streaming, installs `@opennextjs/aws`, prints an
   `sst.aws.Nextjs` snippet with the API key and approval secret as SST secrets.
+- `dopus infra cloudflare`: writes `open-next.config.ts` (`defineCloudflareConfig`), `wrangler.jsonc`, `.dev.vars`;
+  adds `cf:preview` / `cf:deploy`; git-ignores build output and `.dev.vars`; optionally copies the API key and approval
+  secret from `.env.local` into `.dev.vars` (wrangler does not read `.env.local` when `.dev.vars` exists).
 - `keepAlive` (default 15 s): SSE comments while the stream is idle, so CloudFront / ALB / proxies keep long tool calls open.
 
 ## 0.1.0 — 2026-11-10

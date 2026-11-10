@@ -18,8 +18,13 @@ async function freePort() {
   })
 }
 
-/** Starts the production build (`next start`) with the scripted model. */
+/**
+ * Starts the production build (`next start`) with the scripted model.
+ * With E2E_BASE_URL set, uses an already running server instead (e.g. the Cloudflare Workers preview).
+ */
 export async function startServer(env: Record<string, string>) {
+  if (process.env.E2E_BASE_URL)
+    return { url: process.env.E2E_BASE_URL, stop: () => {}, output: () => '' }
   if (!existsSync(join(appDir, '.next', 'BUILD_ID'))) {
     throw new Error('Build the example first: pnpm --filter next-app build')
   }
