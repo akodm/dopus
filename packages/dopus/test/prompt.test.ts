@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildInstructions, CORE_PROMPT, readClientContext } from '../src/index.js'
+import { readClientContext } from '../src/agent.js'
+import { buildInstructions, CORE_PROMPT } from '../src/index.js'
 
 describe('buildInstructions', () => {
   it('orders layers stable → volatile and marks the stable prefix for caching', () => {

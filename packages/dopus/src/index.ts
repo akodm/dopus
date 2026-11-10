@@ -1,10 +1,8 @@
 export {
   type AgentConfig,
-  buildTools,
   type ClientContext,
   createAgentHandler,
   defineAgent,
-  readClientContext,
 } from './agent.js'
 export { ToolError } from './next-errors.js'
 export {
@@ -20,7 +18,6 @@ export {
   type DopusTool,
   type DopusToolSet,
   defineTool,
-  isDopusTool,
   type ToolContext,
   type ToolOptions,
 } from './tool.js'

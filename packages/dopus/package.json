@@ -1,9 +1,13 @@
 {
   "name": "dopus",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Drop an AI agent into your existing Next.js app — your server functions become its tools.",
   "license": "MIT",
-  "type": "module",
+  "author": "akodm",
+  "homepage": "https://github.com/akodm/dopus#readme",
+  "bugs": {
+    "url": "https://github.com/akodm/dopus/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/akodm/dopus.git",
@@ -11,18 +15,25 @@
   },
   "keywords": [
     "nextjs",
+    "next.js",
     "ai",
     "agent",
     "llm",
     "server-actions",
-    "ai-sdk"
+    "ai-sdk",
+    "openai",
+    "anthropic",
+    "gemini",
+    "chatbot"
   ],
+  "type": "module",
   "engines": {
     "node": ">=22"
   },
   "files": [
     "dist",
-    "templates"
+    "templates",
+    "README.md"
   ],
   "bin": {
     "dopus": "./dist/cli.js"
@@ -38,7 +49,11 @@
     "build": "tsdown",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.templates.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepack": "node -e \"require('node:fs').copyFileSync('../../README.md','README.md')\" && pnpm build"
+  },
+  "dependencies": {
+    "@clack/prompts": "1.9.0"
   },
   "peerDependencies": {
     "ai": "^7.0.0",
@@ -58,8 +73,5 @@
     "typescript": "6.0.3",
     "vitest": "5.1.0",
     "zod": "4.6.7"
-  },
-  "dependencies": {
-    "@clack/prompts": "1.9.0"
   }
 }
