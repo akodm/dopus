@@ -1,0 +1,21 @@
+{
+  "name": "dopus-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter ./packages/* build",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r --filter ./packages/* test",
+    "example:build": "pnpm --filter next-app build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.6",
+    "typescript": "6.0.3"
+  }
+}
