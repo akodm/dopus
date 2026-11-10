@@ -16,7 +16,8 @@
     "example:e2e": "pnpm --filter next-app test:e2e",
     "smoke": "node scripts/pack-smoke.mjs",
     "aws:emu": "node scripts/lambda-emu.mjs",
-    "cf:e2e": "node scripts/cloudflare-e2e.mjs"
+    "cf:e2e": "node scripts/cloudflare-e2e.mjs",
+    "gcp:e2e": "node scripts/gcp-e2e.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",

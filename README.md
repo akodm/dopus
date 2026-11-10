@@ -227,7 +227,23 @@ Things to know:
 
 `pnpm cf:e2e` in this repo copies the example and runs `dopus infra cloudflare` on it. It then builds the copy, serves it with `wrangler dev` (local workerd) and runs the same e2e suite against it, covering cookies, ownership checks and signed approvals.
 
-A GCP (Cloud Run) adapter is planned.
+**Google Cloud Run.**
+
+```bash
+pnpm dopus infra gcp
+```
+
+The command sets `output: 'standalone'` in `next.config` (it asks first). It writes a multi-stage `Dockerfile` that pins your pnpm or yarn version through corepack. It also writes a `.dockerignore` that keeps `.env*` and `.dev.vars` out of the image.
+
+It then prints the deploy commands: Secret Manager setup, and `gcloud run deploy --source . --timeout 3600 --set-secrets ...`.
+
+Things to know:
+
+- **Timeout.** A request may last up to 60 min (`--timeout 3600`; the default is 5 min). The timeout covers the whole streamed reply.
+- **Longer work.** Use Cloud Run Jobs and pass the user explicitly (`identify` → `ctx.user`), because there are no cookies outside the request.
+- **Build-time variables.** `.env` files are not copied into the image. If your build needs `NEXT_PUBLIC_*` values, pass them as build args.
+
+`pnpm gcp:e2e` in this repo copies the example and runs `dopus infra gcp` on it. It builds the image with Docker and runs it the way Cloud Run does (`PORT=8080`, secrets as env vars). It checks that a canary secret from `.env.local` is not in the image, then runs the e2e suite against the container.
 
 ## Providers
 
@@ -249,7 +265,6 @@ dopus is at 0.1, so expect breaking changes before 1.0. It is tested on Next.js 
 
 Planned next:
 
-- a GCP (Cloud Run) adapter (AWS and Cloudflare are available via `dopus infra`);
 - `dopus prompts diff` to compare your copies with newer templates;
 - tool input schemas inferred from TypeScript types.
 
@@ -262,6 +277,7 @@ pnpm example:build && pnpm example:e2e   # next start + scripted model
 pnpm smoke                               # packed tarball → fresh app → dopus init → next build
 pnpm aws:emu                             # OpenNext build → local Lambda streaming invoke
 pnpm cf:e2e                              # dopus infra cloudflare → wrangler dev (workerd) → e2e
+pnpm gcp:e2e                             # dopus infra gcp → docker build/run (Cloud Run style) → e2e
 ```
 
 Design notes: [`docs/design.md`](docs/design.md).

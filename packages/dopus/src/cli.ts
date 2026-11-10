@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util'
 import * as p from '@clack/prompts'
 import { runInfraAws } from './infra/aws.js'
 import { runInfraCloudflare } from './infra/cloudflare.js'
+import { runInfraGcp } from './infra/gcp.js'
 import { InitError } from './init/detect.js'
 import { type InitIO, installArgs, runInit } from './init/run.js'
 import { PRESETS, type PresetId } from './init/templates.js'
@@ -16,6 +17,7 @@ Usage:
   dopus init [options]        Add an AI agent to this Next.js app
   dopus infra aws [options]   Prepare the agent route for AWS Lambda (OpenNext streaming + SST snippet)
   dopus infra cloudflare      Prepare the app for Cloudflare Workers (@opennextjs/cloudflare)
+  dopus infra gcp             Prepare the app for Cloud Run (standalone build + Dockerfile)
 
 Options for init:
   --provider <id>        openai | anthropic | google
@@ -26,7 +28,7 @@ Options for init:
   --force                Overwrite generated files that already exist
   --cwd <dir>            Project root (default: current directory)
 
-Options for infra aws / cloudflare:
+Options for infra:
   -y, --yes              Do not ask before installing @opennextjs/aws
   --no-install           Print the install command instead
   --cwd <dir>            Project root
@@ -134,8 +136,9 @@ async function init(args: string[]) {
 
 async function infra(args: string[]) {
   const [target, ...rest] = args
-  if (target !== 'aws' && target !== 'cloudflare') {
-    throw new InitError('Usage: dopus infra aws | dopus infra cloudflare (GCP is planned).')
+  const runners = { aws: runInfraAws, cloudflare: runInfraCloudflare, gcp: runInfraGcp }
+  if (!target || !(target in runners)) {
+    throw new InitError('Usage: dopus infra aws | cloudflare | gcp')
   }
   const { values } = parseArgs({
     args: rest,
@@ -148,7 +151,7 @@ async function infra(args: string[]) {
     allowNegative: true,
   })
   p.intro(`dopus ${VERSION} · infra ${target}`)
-  const run = target === 'aws' ? runInfraAws : runInfraCloudflare
+  const run = runners[target as keyof typeof runners]
   await run(
     {
       cwd: values.cwd ?? process.cwd(),

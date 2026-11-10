@@ -75,3 +75,17 @@ jobs:
       - run: pnpm build
       # dopus infra cloudflare on a copy of the example → OpenNext build → wrangler dev (workerd) → e2e. No account.
       - run: pnpm cf:e2e
+
+  gcp-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # dopus infra gcp on a copy of the example → docker build → docker run (PORT=8080) → e2e. No GCP account.
+      - run: pnpm gcp:e2e

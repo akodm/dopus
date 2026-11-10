@@ -125,6 +125,17 @@ Verified 2026-11-10 (`@opennextjs/cloudflare` 1.20.16, wrangler 4.160.0):
 - One `open-next.config.ts` per app: the command refuses to replace an AWS one.
 - `compatibility_date` is set 30 days back so the installed workerd always supports it.
 
+## Cloud Run (M6)
+
+Verified 2026-11-10 with Docker 29 (no GCP account): the example's e2e suite passes against the generated image run with
+`PORT=8080` and secrets as env vars; a canary secret in `.env.local` is absent from the final image.
+
+- Cloud Run request timeout: default 300 s, max 3600 s, covering the whole response.
+- Found while testing: corepack without a `packageManager` field fetches the newest pnpm, whose default
+  `minimumReleaseAge` rejected a lockfile containing a day-old `next`. The Dockerfile therefore pins the local version.
+- `addStandalone` only edits `const nextConfig = {…}`, `export default {}` and `module.exports = {}`; anything else gets
+  a warning instead of a rewrite.
+
 ## Releasing
 
 1. Bump `packages/dopus/package.json` and `src/version.ts` (a test keeps them equal), add a `CHANGELOG.md` section.
