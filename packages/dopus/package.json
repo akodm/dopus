@@ -55,5 +55,8 @@
     "typescript": "6.0.3",
     "vitest": "5.1.0",
     "zod": "4.6.7"
+  },
+  "dependencies": {
+    "@clack/prompts": "1.9.0"
   }
 }

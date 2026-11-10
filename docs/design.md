@@ -51,6 +51,19 @@ export const POST = createAgentHandler(agent)
 - Approvals are HMAC-signed when `DOPUS_APPROVAL_SECRET` (or `approvalSecret`) is set; forged approvals are not executed.
 - Peer deps: `ai@^7`, `zod@^4`. The provider package is the user's own dependency.
 
+## `dopus init` (M2)
+
+1. Detects the project: `package.json` with `next`, `app/` or `src/app/`, `tsconfig.json`, package manager
+   (`packageManager` field, then lockfile).
+2. Provider select (OpenAI / Anthropic / Google) unless `--provider`.
+3. API key: skipped if any of `.env.development.local`, `.env.local`, `.env.development`, `.env` already defines it.
+   Otherwise a masked prompt; the value only goes to `.env.local` (created with mode 600), never to `.env` or the terminal.
+   `DOPUS_APPROVAL_SECRET` is generated once. If git does not ignore `.env.local`, `.env*.local` is appended to `.gitignore`.
+4. Writes `agent.config.ts` (root, or `src/` for `src/app`) and `<appDir>/api/agent/route.ts`.
+   Existing files (including `.js` variants) are left alone; `--force` overwrites after a confirm.
+5. Installs whatever of `dopus`, `ai@^7`, `zod@^4`, the provider package is missing (`--no-install` prints the command).
+   Flags: `--provider`, `--model`, `--yes` (non-interactive, needs `--provider`, skips the key prompt), `--no-install`, `--force`, `--cwd`.
+
 ## Auth inheritance
 
 Tools run in the route handler's request, so `cookies()` / `headers()` inside a server function see the caller's session.
