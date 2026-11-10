@@ -100,3 +100,10 @@ Verified in M1 on a `next start` (16.4.6) server: a tool executed mid-stream rea
 ## Milestones
 
 M0 repo/CI · M1 runtime · M2 `init` CLI · M3 prompts + chat UI · M4 example + cookie test · M5 docs + 0.1.0 · M6+ AWS → Cloudflare → GCP adapters.
+
+## Releasing
+
+1. Bump `packages/dopus/package.json` and `src/version.ts` (a test keeps them equal), add a `CHANGELOG.md` section.
+2. Commit, then push a tag `v<version>`. `.github/workflows/release.yml` runs every check (including e2e and the pack smoke
+   test), publishes with npm trusted publishing (OIDC, provenance) and creates the GitHub Release from the CHANGELOG section.
+3. 0.1.0 was published manually by the maintainer (first publish creates the package); later versions go through the workflow.

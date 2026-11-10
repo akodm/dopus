@@ -1,0 +1,54 @@
+name: Release
+
+# Push a tag like v0.1.1 to publish. npm authenticates this workflow with OIDC
+# (trusted publishing: npmjs.com → dopus → Settings → Trusted Publisher), so no token is stored.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub Release
+      id-token: write # npm trusted publishing + provenance
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Tag must match package version
+        run: |
+          VERSION=$(node -p "require('./packages/dopus/package.json').version")
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match packages/dopus version $VERSION" >&2
+            exit 1
+          fi
+          node scripts/release-notes.mjs "$VERSION" > "$RUNNER_TEMP/notes.md"
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm example:build
+      - run: pnpm example:e2e
+      - run: pnpm smoke
+
+      # Trusted publishing needs npm >= 11.5.1.
+      - run: npm install -g npm@^11.15.0
+      - name: Publish to npm
+        working-directory: packages/dopus
+        run: npm publish --access public --provenance
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
