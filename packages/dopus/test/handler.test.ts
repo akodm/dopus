@@ -49,6 +49,33 @@ describe('createAgentHandler', () => {
     expect(system).toEqual(['CORE\n\nAPP', 'Request context:\n- Response language: ko-KR'])
   })
 
+  it('merges server runtime values over the browser context', async () => {
+    const model = scriptedModel(textStep('ok'))
+    const POST = createAgentHandler(
+      defineAgent({
+        model,
+        tools: {},
+        prompt: { core: false },
+        runtime: (_req, { client }) => ({ role: 'admin', page: client.page?.toUpperCase() }),
+        ...silent,
+      }),
+    )
+    const request = new Request('http://localhost/api/agent', {
+      method: 'POST',
+      body: JSON.stringify({
+        messages: [userMessage('hi')],
+        context: { locale: 'en', page: '/orders', role: 'x' },
+      }),
+    })
+    await readChunks(await POST(request))
+    const system = (model.doStreamCalls[0]?.prompt ?? [])
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+    expect(system).toEqual([
+      'Request context:\n- Response language: en\n- Current page (reported by the browser): /ORDERS\n- User role: admin',
+    ])
+  })
+
   it('runs a tool with validated input and the identified user, then continues', async () => {
     const getOrders = vi.fn(async (input: { status: string }, _ctx: ToolContext) => [
       { id: 'o1', status: input.status },

@@ -24,12 +24,12 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
   tools: TOOLS
   prompt?: PromptLayers
   /**
-   * Per-request values for the runtime prompt layer (locale, role, current page).
-   * Runs inside the request, so `cookies()` / `headers()` work here.
+   * Per-request values for the runtime prompt layer (e.g. the user's role). Runs inside the request,
+   * so `cookies()` / `headers()` work here. Merged over the browser-reported `locale` and `page`.
    */
   runtime?: (
     request: Request,
-    ctx: { user: AgentUser | undefined },
+    ctx: { user: AgentUser | undefined; client: ClientContext },
   ) => RuntimeContext | undefined | Promise<RuntimeContext | undefined>
   /**
    * Resolve the requesting user. Optional for in-request tools (they read cookies themselves);
@@ -114,6 +114,34 @@ export function buildTools(tools: DopusToolSet, ctx: BuildContext) {
   return { tools: aiTools, toolApproval: approval }
 }
 
+/**
+ * What the browser reports about itself (`body.context` from the chat UI). Untrusted: only `locale`
+ * and `page` are accepted, cleaned and length-limited before they reach the prompt. Anything that
+ * matters for permissions (role, plan, tenant) must come from the server in `runtime`.
+ */
+export interface ClientContext {
+  locale?: string
+  page?: string
+}
+
+const LOCALE_TAG = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8}){0,3}$/
+
+export function readClientContext(body: unknown, request: Request): ClientContext {
+  const raw = (body as { context?: Record<string, unknown> } | null)?.context ?? {}
+  const clean = (value: unknown, max: number) =>
+    typeof value === 'string'
+      ? value
+          // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
+          .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+          .trim()
+          .slice(0, max) || undefined
+      : undefined
+
+  const fromHeader = request.headers.get('accept-language')?.split(',')[0]?.split(';')[0]?.trim()
+  const locale = [clean(raw.locale, 35), fromHeader].find((tag) => tag && LOCALE_TAG.test(tag))
+  return { locale, page: clean(raw.page, 200) }
+}
+
 const JSON_HEADERS = { 'content-type': 'application/json' }
 
 function errorResponse(status: number, message: string) {
@@ -129,7 +157,7 @@ export function createAgentHandler(config: AgentConfig) {
   const maxSteps = config.maxSteps ?? 10
   const report = config.onError ?? ((error: unknown) => console.error('[dopus]', error))
 
-  return async function POST(request: Request): Promise<Response> {
+  return async function handleAgentRequest(request: Request): Promise<Response> {
     let body: unknown
     try {
       body = await request.json()
@@ -148,7 +176,8 @@ export function createAgentHandler(config: AgentConfig) {
     }
     const messages = validated.data
 
-    const runtime = await config.runtime?.(request, { user })
+    const client = readClientContext(body, request)
+    const runtime = { ...client, ...(await config.runtime?.(request, { user, client })) }
     const approvalSecret = config.approvalSecret ?? process.env.DOPUS_APPROVAL_SECRET
 
     const result = streamText({

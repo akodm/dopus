@@ -4,7 +4,13 @@ import { dirname, join, relative } from 'node:path'
 import { PROVIDERS, type ProviderId, type ProviderInfo } from '../providers.js'
 import { detectProject, InitError, type PackageManager } from './detect.js'
 import { findDefinitions, isEnvLocalIgnored, upsertEnv } from './env.js'
-import { agentConfigTemplate, routeTemplate } from './templates.js'
+import {
+  agentConfigTemplate,
+  PRESETS,
+  type PresetId,
+  readTemplate,
+  routeTemplate,
+} from './templates.js'
 
 export const APPROVAL_SECRET_ENV = 'DOPUS_APPROVAL_SECRET'
 
@@ -12,6 +18,7 @@ export interface InitOptions {
   cwd: string
   provider?: ProviderId
   model?: string
+  preset?: PresetId
   /** Non-interactive: accept defaults, never prompt. */
   yes?: boolean
   /** Install missing dependencies. Default true. */
@@ -22,6 +29,7 @@ export interface InitOptions {
 
 export interface InitIO {
   selectProvider(): Promise<ProviderId>
+  selectPreset(): Promise<PresetId>
   /** Returns the key, or undefined to skip. The value must never be logged. */
   askApiKey(provider: ProviderInfo): Promise<string | undefined>
   confirm(message: string, initial: boolean): Promise<boolean>
@@ -33,6 +41,10 @@ export interface InitIO {
 
 export interface InitResult {
   provider: ProviderId
+  preset: PresetId
+  /** Import path for AgentWidget, relative to the root layout. */
+  widgetImport: string
+  layoutFile: string
   created: string[]
   skipped: string[]
   overwritten: string[]
@@ -71,12 +83,25 @@ export async function runInit(options: InitOptions, io: InitIO): Promise<InitRes
   if (options.yes && !options.provider) {
     throw new InitError('--yes needs --provider (openai, anthropic or google).')
   }
+  if (options.preset && !PRESETS.some((p) => p.id === options.preset)) {
+    throw new InitError(
+      `Unknown preset "${options.preset}". Use one of: ${PRESETS.map((p) => p.id).join(', ')}`,
+    )
+  }
   const provider = options.provider ?? (await io.selectProvider())
   const info = PROVIDERS[provider]
   const model = options.model ?? info.defaultModel
+  const preset = options.preset ?? (options.yes ? 'general' : await io.selectPreset())
+
+  const at = (path: string) => join(project.configDir, path)
+  const layoutFile = join(project.appDir, 'layout.tsx')
+  const chatFile = at('components/agent/agent-chat.tsx')
 
   const result: InitResult = {
     provider,
+    preset,
+    widgetImport: toImportPath(layoutFile, chatFile.replace(/\.tsx$/, '')),
+    layoutFile,
     created: [],
     skipped: [],
     overwritten: [],
@@ -132,21 +157,29 @@ export async function runInit(options: InitOptions, io: InitIO): Promise<InitRes
   }
 
   // 2. Generated files
-  const configFile = join(project.configDir, 'agent.config.ts')
   const routeFile = join(project.appDir, 'api', 'agent', 'route.ts')
-  const files: [string, string, string[]][] = [
-    [configFile, agentConfigTemplate(provider, model), ['agent.config.js', 'agent.config.mjs']],
+  const files: [file: string, content: () => string, alternatives: string[]][] = [
+    [
+      at('agent.config.ts'),
+      () => agentConfigTemplate(provider, model),
+      [at('agent.config.js'), at('agent.config.mjs')],
+    ],
+    [at('agent/prompts/preset.ts'), () => readTemplate(`prompts/presets/${preset}.ts`), []],
+    [at('agent/prompts/app.ts'), () => readTemplate('prompts/app.ts'), []],
     [
       routeFile,
-      routeTemplate(toImportPath(routeFile, join(project.configDir, 'agent.config'))),
-      [join(project.appDir, 'api', 'agent', 'route.js')],
+      () => routeTemplate(toImportPath(routeFile, at('agent.config'))),
+      [routeFile.replace(/\.ts$/, '.js')],
+    ],
+    [chatFile, () => readTemplate('ui/agent-chat.tsx'), []],
+    [
+      at('components/agent/agent-chat.module.css'),
+      () => readTemplate('ui/agent-chat.module.css'),
+      [],
     ],
   ]
   for (const [file, content, alternatives] of files) {
-    const existing = [
-      file,
-      ...alternatives.map((alt) => (alt.includes('/') ? alt : join(project.configDir, alt))),
-    ].find((f) => existsSync(join(root, f)))
+    const existing = [file, ...alternatives].find((f) => existsSync(join(root, f)))
     if (existing) {
       const overwrite =
         options.force &&
@@ -162,7 +195,7 @@ export async function runInit(options: InitOptions, io: InitIO): Promise<InitRes
       result.created.push(file)
     }
     mkdirSync(dirname(join(root, file)), { recursive: true })
-    writeFileSync(join(root, file), content)
+    writeFileSync(join(root, file), content())
     io.success(`${result.overwritten.includes(file) ? 'Overwrote' : 'Created'} ${file}`)
   }
 
@@ -172,6 +205,7 @@ export async function runInit(options: InitOptions, io: InitIO): Promise<InitRes
     ['ai', 'ai@^7'],
     ['zod', 'zod@^4'],
     [info.packageName, `${info.packageName}@^4`],
+    ['@ai-sdk/react', '@ai-sdk/react@^4'],
   ]
   const missing = wanted.filter(([name]) => !project.dependencies[name]).map(([, spec]) => spec)
   if (missing.length > 0) {

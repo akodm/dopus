@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { InitIO } from '../src/init/run.js'
+import type { PresetId } from '../src/init/templates.js'
 import type { ProviderId } from '../src/providers.js'
 
 export function nextApp(
@@ -26,10 +27,11 @@ export function nextApp(
 }
 
 export function fakeIO(
-  answers: { provider?: ProviderId; apiKey?: string; confirm?: boolean } = {},
+  answers: { provider?: ProviderId; preset?: PresetId; apiKey?: string; confirm?: boolean } = {},
 ) {
   const log: string[] = []
   const calls = {
+    selectPreset: 0,
     selectProvider: 0,
     askApiKey: 0,
     confirm: [] as string[],
@@ -39,6 +41,10 @@ export function fakeIO(
     async selectProvider() {
       calls.selectProvider++
       return answers.provider ?? 'anthropic'
+    },
+    async selectPreset() {
+      calls.selectPreset++
+      return answers.preset ?? 'general'
     },
     async askApiKey() {
       calls.askApiKey++

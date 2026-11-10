@@ -1,4 +1,11 @@
-export { type AgentConfig, buildTools, createAgentHandler, defineAgent } from './agent.js'
+export {
+  type AgentConfig,
+  buildTools,
+  type ClientContext,
+  createAgentHandler,
+  defineAgent,
+  readClientContext,
+} from './agent.js'
 export { ToolError } from './next-errors.js'
 export {
   buildInstructions,

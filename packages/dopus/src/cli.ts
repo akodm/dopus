@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util'
 import * as p from '@clack/prompts'
 import { InitError } from './init/detect.js'
 import { type InitIO, installArgs, runInit } from './init/run.js'
+import { PRESETS, type PresetId } from './init/templates.js'
 import { PROVIDERS, type ProviderId } from './providers.js'
 import { VERSION } from './version.js'
 
@@ -15,6 +16,7 @@ Usage:
 Options for init:
   --provider <id>        openai | anthropic | google
   --model <id>           Model id (default depends on the provider)
+  --preset <id>          general | customer-support | internal-ops (default with --yes: general)
   -y, --yes              Non-interactive; skips the API key prompt (needs --provider)
   --no-install           Do not install dependencies
   --force                Overwrite generated files that already exist
@@ -38,6 +40,14 @@ const io: InitIO = {
       await p.select<ProviderId>({
         message: 'Which LLM provider?',
         options: Object.values(PROVIDERS).map((info) => ({ value: info.id, label: info.label })),
+      }),
+    )
+  },
+  async selectPreset() {
+    return cancelled(
+      await p.select<PresetId>({
+        message: 'Which prompt preset? (copied into your project; edit freely)',
+        options: PRESETS.map((preset) => ({ value: preset.id, label: preset.label })),
       }),
     )
   },
@@ -79,6 +89,7 @@ async function init(args: string[]) {
     options: {
       provider: { type: 'string' },
       model: { type: 'string' },
+      preset: { type: 'string' },
       yes: { type: 'boolean', short: 'y' },
       install: { type: 'boolean', default: true },
       'no-install': { type: 'boolean' },
@@ -94,6 +105,7 @@ async function init(args: string[]) {
       cwd: values.cwd ?? process.cwd(),
       provider: values.provider as ProviderId | undefined,
       model: values.model,
+      preset: values.preset as PresetId | undefined,
       yes: values.yes,
       install: values['no-install'] ? false : values.install,
       force: values.force,
@@ -104,7 +116,8 @@ async function init(args: string[]) {
   const steps = [
     result.apiKeyMissing ? `Add ${info.envVar}=... to .env.local` : undefined,
     'Register your server functions as tools in agent.config.ts',
-    'POST /api/agent is ready for useChat (chat UI templates come with `dopus init` in a later version)',
+    'Describe your service in agent/prompts/app.ts',
+    `Show the chat: in ${result.layoutFile} add\n   import { AgentWidget } from '${result.widgetImport}'\n   and render <AgentWidget /> inside <body>`,
   ].filter(Boolean)
   p.note(steps.map((s, i) => `${i + 1}. ${s}`).join('\n'), 'Next steps')
   p.outro('Done.')

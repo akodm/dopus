@@ -8,6 +8,15 @@ import { fakeIO, nextApp } from './fixture.js'
 
 const read = (root: string, file: string) => readFileSync(join(root, file), 'utf8')
 
+const GENERATED = [
+  'agent.config.ts',
+  'agent/prompts/preset.ts',
+  'agent/prompts/app.ts',
+  'app/api/agent/route.ts',
+  'components/agent/agent-chat.tsx',
+  'components/agent/agent-chat.module.css',
+]
+
 describe('detectProject', () => {
   it('finds app/ or src/app/ and the package manager', () => {
     expect(detectProject(nextApp())).toMatchObject({
@@ -35,10 +44,19 @@ describe('detectProject', () => {
 describe('runInit', () => {
   it('sets up a fresh app', async () => {
     const root = nextApp()
-    const { io, calls } = fakeIO({ provider: 'openai', apiKey: 'sk-test-123' })
+    const { io, calls } = fakeIO({
+      provider: 'openai',
+      preset: 'customer-support',
+      apiKey: 'sk-test-123',
+    })
     const result = await runInit({ cwd: root }, io)
 
-    expect(result.created).toEqual(['agent.config.ts', 'app/api/agent/route.ts'])
+    expect(result.created).toEqual(GENERATED)
+    expect(read(root, 'agent/prompts/preset.ts')).toContain('support assistant')
+    expect(read(root, 'agent/prompts/app.ts')).toContain('export const locales')
+    expect(read(root, 'components/agent/agent-chat.tsx')).toContain('export function AgentWidget')
+    expect(read(root, 'agent.config.ts')).toContain("import preset from './agent/prompts/preset'")
+    expect(result.widgetImport).toBe('../components/agent/agent-chat')
     expect(read(root, 'agent.config.ts')).toContain("import { openai } from '@ai-sdk/openai'")
     expect(read(root, 'agent.config.ts')).toContain("model: openai('gpt-5.5')")
     expect(read(root, 'app/api/agent/route.ts')).toContain(
@@ -52,7 +70,9 @@ describe('runInit', () => {
     expect(existsSync(join(root, '.env'))).toBe(false)
     expect(read(root, '.gitignore')).toContain('.env*.local')
 
-    expect(calls.install).toEqual([['dopus', 'ai@^7', 'zod@^4', '@ai-sdk/openai@^4']])
+    expect(calls.install).toEqual([
+      ['dopus', 'ai@^7', 'zod@^4', '@ai-sdk/openai@^4', '@ai-sdk/react@^4'],
+    ])
   })
 
   it('is safe to run again', async () => {
@@ -66,7 +86,8 @@ describe('runInit', () => {
     const result = await runInit({ cwd: root }, second.io)
 
     expect(result.created).toEqual([])
-    expect(result.skipped).toEqual(['agent.config.ts', 'app/api/agent/route.ts'])
+    expect(result.skipped).toEqual(GENERATED)
+    expect(second.calls.selectPreset).toBe(1)
     expect(result.envChanged).toEqual([])
     expect(read(root, '.env.local')).toBe(envBefore)
     expect(read(root, 'agent.config.ts')).toContain('// my edits')
@@ -98,8 +119,15 @@ describe('runInit', () => {
       { cwd: root, provider: 'anthropic', yes: true, install: false },
       fakeIO().io,
     )
-    expect(result.created).toEqual(['src/agent.config.ts'])
+    expect(result.created).toEqual([
+      'src/agent.config.ts',
+      'src/agent/prompts/preset.ts',
+      'src/agent/prompts/app.ts',
+      'src/components/agent/agent-chat.tsx',
+      'src/components/agent/agent-chat.module.css',
+    ])
     expect(result.skipped).toEqual(['src/app/api/agent/route.js'])
+    expect(result.widgetImport).toBe('../components/agent/agent-chat')
     expect(result.apiKeyMissing).toBe(true)
   })
 
@@ -117,9 +145,19 @@ describe('runInit', () => {
     writeFileSync(join(root, 'agent.config.ts'), 'old')
     const { io, calls } = fakeIO()
     const result = await runInit({ cwd: root, provider: 'anthropic', yes: true, force: true }, io)
-    expect(result.overwritten).toEqual(['agent.config.ts', 'app/api/agent/route.ts'])
+    expect(result.overwritten).toEqual(GENERATED)
     expect(read(root, 'agent.config.ts')).toContain('defineAgent')
-    expect(calls.install).toEqual([['@ai-sdk/anthropic@^4']])
+    expect(calls.install).toEqual([['@ai-sdk/anthropic@^4', '@ai-sdk/react@^4']])
+    expect(read(root, 'agent/prompts/preset.ts')).toContain('in-app assistant')
+  })
+
+  it('rejects an unknown preset', async () => {
+    await expect(
+      runInit(
+        { cwd: nextApp(), provider: 'openai', preset: 'nope' as never, yes: true },
+        fakeIO().io,
+      ),
+    ).rejects.toThrow(/preset/)
   })
 
   it('requires --provider with --yes', async () => {

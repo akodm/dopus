@@ -64,6 +64,24 @@ export const POST = createAgentHandler(agent)
 5. Installs whatever of `dopus`, `ai@^7`, `zod@^4`, the provider package is missing (`--no-install` prints the command).
    Flags: `--provider`, `--model`, `--yes` (non-interactive, needs `--provider`, skips the key prompt), `--no-install`, `--force`, `--cwd`.
 
+## Prompts and chat UI (M3)
+
+`dopus init` copies (user-owned afterwards):
+
+- `agent/prompts/preset.ts` — one of `general`, `customer-support`, `internal-ops` (`--preset`).
+- `agent/prompts/app.ts` — service description template + optional `locales` notes (tone/terminology per language).
+- `components/agent/agent-chat.tsx` + `.module.css` — `AgentChat` (panel) and `AgentWidget` (floating launcher):
+  tool states, approve/decline card, stop/retry, suggestions, IME-safe Enter, `--dopus-*` CSS variables, dark mode.
+  No Tailwind or component library needed.
+
+Prompts are `.ts` modules (template strings), not `.md` read from disk, so they bundle on every runtime (Node, edge, serverless)
+without file tracing.
+
+Runtime layer: the chat UI sends `body.context = { page, locale }`. The server accepts only those two keys, strips control
+characters and caps length (page 200, locale must be a BCP 47 tag; falls back to `Accept-Language`). Server values from
+`runtime()` (e.g. `role`) override them. Per-language notes from `prompt.locales` are picked by locale and stay in the
+cached prefix.
+
 ## Auth inheritance
 
 Tools run in the route handler's request, so `cookies()` / `headers()` inside a server function see the caller's session.
