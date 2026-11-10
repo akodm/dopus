@@ -40,10 +40,20 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "peerDependencies": {
+    "ai": "^7.0.0",
+    "zod": "^4.1.8"
+  },
   "devDependencies": {
+    "@ai-sdk/anthropic": "4.0.99",
+    "@ai-sdk/google": "4.0.114",
+    "@ai-sdk/openai": "4.0.111",
+    "@ai-sdk/provider": "4.0.37",
     "@types/node": "^24.0.0",
+    "ai": "7.0.166",
     "tsdown": "0.23.7",
     "typescript": "6.0.3",
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "zod": "4.6.7"
   }
 }

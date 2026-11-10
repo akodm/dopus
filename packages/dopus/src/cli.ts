@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { VERSION } from './index.js'
+import { VERSION } from './version.js'
 
 const [command] = process.argv.slice(2)
 

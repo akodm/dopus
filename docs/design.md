@@ -26,12 +26,38 @@ One npm package, `dopus`:
 - Tool context: `toolsContext` (per tool, typed via `contextSchema`) and `runtimeContext` (shared).
 - Google: `createGoogleGenerativeAI` → `createGoogle`.
 
+## Runtime API (M1)
+
+```ts
+// agent.config.ts
+export default defineAgent({
+  model: anthropic('claude-sonnet-5-5'),
+  tools: {
+    getOrders: defineTool((i) => getOrders(i.status), { description, usage, input: z.object({...}) }),
+    cancelOrder: defineTool(cancelOrder, { description, input, confirm: true }), // or (input, ctx) => boolean
+  },
+  prompt: { core?, preset?, app? },
+  runtime: (req, { user }) => ({ locale, role, page }),
+  identify: (req) => ({ id }) | undefined,   // only needed for off-request execution
+  maxSteps: 10,
+})
+// app/api/agent/route.ts
+export const POST = createAgentHandler(agent)
+```
+
+- Tool functions are called as `fn(input, { user, toolCallId, abortSignal })`; `output` maps results before the model sees them.
+- Errors: only `ToolError` messages (and translated Next `redirect`/`notFound`/`forbidden`/`unauthorized`) reach the model;
+  anything else is passed to `onError` and replaced with a generic message. The client always gets a generic error text.
+- Approvals are HMAC-signed when `DOPUS_APPROVAL_SECRET` (or `approvalSecret`) is set; forged approvals are not executed.
+- Peer deps: `ai@^7`, `zod@^4`. The provider package is the user's own dependency.
+
 ## Auth inheritance
 
 Tools run in the route handler's request, so `cookies()` / `headers()` inside a server function see the caller's session.
 This is the default and the main differentiator. When execution moves off-request (queues, background infra adapters),
 the request context is gone: adapters must receive an explicit, serialisable user identity (`runtimeContext.user`) and
-tools that need auth must accept it. That interface is designed in M1 even though adapters land in M6+.
+tools that need auth must accept it.
+Verified in M1 on a `next start` (16.4.6) server: a tool executed mid-stream reads the caller's cookie via `cookies()`. That interface is designed in M1 even though adapters land in M6+.
 
 ## Prompt layers (stable → volatile, for provider prompt caching)
 
