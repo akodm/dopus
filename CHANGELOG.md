@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- `dopus infra aws`: writes `open-next.config.ts` with Lambda response streaming, installs `@opennextjs/aws`, prints an
+  `sst.aws.Nextjs` snippet with the API key and approval secret as SST secrets.
+- `keepAlive` (default 15 s): SSE comments while the stream is idle, so CloudFront / ALB / proxies keep long tool calls open.
+
 ## 0.1.0 — 2026-11-10
 
 First release.

@@ -56,6 +56,63 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
   >
   /** Called for errors; the client only ever sees a generic message. */
   onError?: (error: unknown) => void
+  /**
+   * While the stream is idle (e.g. a slow tool), send an SSE comment every this many ms so proxies
+   * (CloudFront, ALB, nginx) do not drop the connection. Clients ignore comments. Default 15000; `false` disables.
+   */
+  keepAlive?: number | false
+}
+
+const KEEP_ALIVE = new TextEncoder().encode(': keep-alive\n\n')
+
+/**
+ * Inserts SSE comment lines while the body is idle. The UI message stream emits one complete
+ * `data: …\n\n` event per chunk, so writing between chunks never splits an event.
+ */
+export function withKeepAlive(response: Response, intervalMs: number): Response {
+  const source = response.body
+  if (!source || intervalMs <= 0) return response
+  const reader = source.getReader()
+  let timer: ReturnType<typeof setInterval> | undefined
+  let lastWrite = Date.now()
+
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      timer = setInterval(
+        () => {
+          if (Date.now() - lastWrite >= intervalMs) {
+            controller.enqueue(KEEP_ALIVE)
+            lastWrite = Date.now()
+          }
+        },
+        Math.min(intervalMs, 1000),
+      )
+    },
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read()
+        if (done) {
+          clearInterval(timer)
+          controller.close()
+          return
+        }
+        lastWrite = Date.now()
+        controller.enqueue(value)
+      } catch (error) {
+        clearInterval(timer)
+        controller.error(error)
+      }
+    },
+    cancel(reason) {
+      clearInterval(timer)
+      return reader.cancel(reason)
+    },
+  })
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
 }
 
 /** Identity function that gives `agent.config.ts` type checking. */
@@ -193,7 +250,7 @@ export function createAgentHandler(config: AgentConfig) {
       onError: ({ error }) => report(error),
     })
 
-    return createUIMessageStreamResponse({
+    const response = createUIMessageStreamResponse({
       stream: toUIMessageStream({
         stream: result.stream,
         tools,
@@ -204,5 +261,8 @@ export function createAgentHandler(config: AgentConfig) {
         },
       }),
     })
+    return config.keepAlive === false
+      ? response
+      : withKeepAlive(response, config.keepAlive ?? 15_000)
   }
 }

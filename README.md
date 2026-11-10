@@ -184,6 +184,31 @@ defineAgent({
 })
 ```
 
+## Deploying
+
+**Vercel / any Node server.** Nothing extra. The route streams. Raise `maxDuration` in `app/api/agent/route.ts` if your plan allows it.
+
+**AWS (OpenNext / SST).**
+
+```bash
+pnpm dopus infra aws
+```
+
+The command writes `open-next.config.ts` with Lambda response streaming (`aws-lambda-streaming`) and installs `@opennextjs/aws`. It also prints an `sst.aws.Nextjs` snippet that passes your API key and `DOPUS_APPROVAL_SECRET` as SST secrets.
+
+SST reads OpenNext's streaming flag and sets the Function URL to `RESPONSE_STREAM`. Nothing is deployed for you.
+
+Things to know:
+
+- **Keep-alive.** While a tool runs and nothing else is sent, dopus writes an SSE comment (`: keep-alive`) every 15 s (`keepAlive` option). Clients ignore it. CloudFront, ALB and nginx time out on gaps between packets, not on total time, so a slow tool does not cut the stream.
+- **Turn length.** A turn still has to finish within the Lambda timeout. Behind CloudFront that is 60 s by default (up to 180 s with a quota increase). A bare Function URL allows up to 15 min.
+- **No API Gateway.** Don't put API Gateway HTTP APIs in front of `/api/agent`. They cap requests at 30 s and buffer the response.
+- **Long-running work.** Work that outlives a request, such as queues and background jobs, loses the request's cookies. Use `identify` and pass `ctx.user` on explicitly.
+
+`pnpm aws:emu` in this repo builds the example with OpenNext and invokes the Lambda handler locally through a stand-in for the streaming runtime. It checks that the response streams and that tools still read the caller's cookie.
+
+Cloudflare and GCP adapters are planned.
+
 ## Providers
 
 | Provider  | Package             | API key env                    | Default model       |
@@ -204,7 +229,7 @@ dopus is at 0.1, so expect breaking changes before 1.0. It is tested on Next.js 
 
 Planned next:
 
-- infra adapters for long-running agents (AWS first, then Cloudflare, then GCP);
+- infra adapters for Cloudflare and GCP (AWS is available via `dopus infra aws`);
 - `dopus prompts diff` to compare your copies with newer templates;
 - tool input schemas inferred from TypeScript types.
 
@@ -215,6 +240,7 @@ pnpm install
 pnpm build && pnpm lint && pnpm typecheck && pnpm test
 pnpm example:build && pnpm example:e2e   # next start + scripted model
 pnpm smoke                               # packed tarball → fresh app → dopus init → next build
+pnpm aws:emu                             # OpenNext build → local Lambda streaming invoke
 ```
 
 Design notes: [`docs/design.md`](docs/design.md).

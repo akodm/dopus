@@ -36,7 +36,12 @@ export interface InitIO {
   info(message: string): void
   warn(message: string): void
   success(message: string): void
-  install(packageManager: PackageManager, packages: string[], cwd: string): Promise<void>
+  install(
+    packageManager: PackageManager,
+    packages: string[],
+    cwd: string,
+    dev?: boolean,
+  ): Promise<void>
 }
 
 export interface InitResult {
@@ -60,8 +65,8 @@ const ADD_COMMAND: Record<PackageManager, string[]> = {
   bun: ['add'],
 }
 
-export function installArgs(packageManager: PackageManager, packages: string[]) {
-  return [...ADD_COMMAND[packageManager], ...packages]
+export function installArgs(packageManager: PackageManager, packages: string[], dev = false) {
+  return [...ADD_COMMAND[packageManager], ...(dev ? ['-D'] : []), ...packages]
 }
 
 function toImportPath(fromFile: string, toFileWithoutExt: string) {

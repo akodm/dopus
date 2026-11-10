@@ -101,6 +101,19 @@ Verified in M1 on a `next start` (16.4.6) server: a tool executed mid-stream rea
 
 M0 repo/CI · M1 runtime · M2 `init` CLI · M3 prompts + chat UI · M4 example + cookie test · M5 docs + 0.1.0 · M6+ AWS → Cloudflare → GCP adapters.
 
+## AWS (M6)
+
+Verified 2026-11-10 (OpenNext `@opennextjs/aws` 4.1.15, SST `dev` source):
+
+- `default.override.wrapper: 'aws-lambda-streaming'` → `open-next.output.json` marks the server origin `streaming: true`;
+  `sst.aws.Nextjs` passes that to its Function (`streaming` → Function URL invoke mode RESPONSE_STREAM). SST deploys only
+  the default server function, so per-route function splitting is not used.
+- SST sets the CloudFront origin read timeout to the server timeout; CloudFront allows 1–60 s (more by quota).
+  CloudFront's response timeout applies to the first byte _and_ to gaps between packets; there is no total limit unless a
+  response-completion timeout is set. Hence the runtime `keepAlive` heartbeat (SSE comment between events).
+- `scripts/lambda-emu.mjs` invokes the real OpenNext bundle with Function URL (payload v2) events and the Lambda
+  http-integration framing (JSON prelude + 8 NUL bytes). It runs in CI. Real deployments need the user's approval.
+
 ## Releasing
 
 1. Bump `packages/dopus/package.json` and `src/version.ts` (a test keeps them equal), add a `CHANGELOG.md` section.

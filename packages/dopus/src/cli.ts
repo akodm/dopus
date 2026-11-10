@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process'
 import { parseArgs } from 'node:util'
 import * as p from '@clack/prompts'
+import { runInfraAws } from './infra/aws.js'
 import { InitError } from './init/detect.js'
 import { type InitIO, installArgs, runInit } from './init/run.js'
 import { PRESETS, type PresetId } from './init/templates.js'
@@ -11,7 +12,8 @@ import { VERSION } from './version.js'
 const HELP = `dopus ${VERSION}
 
 Usage:
-  dopus init [options]   Add an AI agent to this Next.js app
+  dopus init [options]        Add an AI agent to this Next.js app
+  dopus infra aws [options]   Prepare the agent route for AWS Lambda (OpenNext streaming + SST snippet)
 
 Options for init:
   --provider <id>        openai | anthropic | google
@@ -21,6 +23,11 @@ Options for init:
   --no-install           Do not install dependencies
   --force                Overwrite generated files that already exist
   --cwd <dir>            Project root (default: current directory)
+
+Options for infra aws:
+  -y, --yes              Do not ask before installing @opennextjs/aws
+  --no-install           Print the install command instead
+  --cwd <dir>            Project root
 
   -h, --help             Show this help
   -v, --version          Show the version
@@ -66,9 +73,9 @@ const io: InitIO = {
   info: (message) => p.log.info(message),
   warn: (message) => p.log.warn(message),
   success: (message) => p.log.success(message),
-  install(packageManager, packages, cwd) {
+  install(packageManager, packages, cwd, dev) {
     return new Promise((resolve, reject) => {
-      const child = spawn(packageManager, installArgs(packageManager, packages), {
+      const child = spawn(packageManager, installArgs(packageManager, packages, dev), {
         cwd,
         stdio: 'inherit',
         shell: process.platform === 'win32',
@@ -123,10 +130,38 @@ async function init(args: string[]) {
   p.outro('Done.')
 }
 
+async function infra(args: string[]) {
+  const [target, ...rest] = args
+  if (target !== 'aws') {
+    throw new InitError('Usage: dopus infra aws (Cloudflare and GCP are planned).')
+  }
+  const { values } = parseArgs({
+    args: rest,
+    options: {
+      yes: { type: 'boolean', short: 'y' },
+      install: { type: 'boolean', default: true },
+      'no-install': { type: 'boolean' },
+      cwd: { type: 'string' },
+    },
+    allowNegative: true,
+  })
+  p.intro(`dopus ${VERSION} · infra aws`)
+  await runInfraAws(
+    {
+      cwd: values.cwd ?? process.cwd(),
+      yes: values.yes,
+      install: values['no-install'] ? false : values.install,
+    },
+    { ...io, note: (message, title) => p.note(message, title) },
+  )
+  p.outro('Done. Nothing was deployed.')
+}
+
 async function main() {
   const [command, ...rest] = process.argv.slice(2)
   if (command === '--version' || command === '-v') return console.log(VERSION)
   if (command === 'init') return init(rest)
+  if (command === 'infra') return infra(rest)
   console.log(HELP)
   if (command && command !== '--help' && command !== '-h') process.exitCode = 1
 }
