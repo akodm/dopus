@@ -31,3 +31,19 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm example:build
+      # Starts `next start` with a scripted model: tools must see the caller's cookies.
+      - run: pnpm example:e2e
+
+  pack-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # Installs the packed tarball into a fresh Next.js app, runs `dopus init`, then `next build`.
+      - run: pnpm smoke

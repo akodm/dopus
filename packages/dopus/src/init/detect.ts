@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 export type PackageManager = 'pnpm' | 'npm' | 'yarn' | 'bun'
 
@@ -30,15 +30,45 @@ function readPackageJson(root: string) {
   }
 }
 
+const LOCKFILES: [string, PackageManager][] = [
+  ['pnpm-lock.yaml', 'pnpm'],
+  ['yarn.lock', 'yarn'],
+  ['bun.lock', 'bun'],
+  ['bun.lockb', 'bun'],
+  ['package-lock.json', 'npm'],
+]
+
+function fromPackageManagerField(value: unknown): PackageManager | undefined {
+  const name = typeof value === 'string' ? value.split('@')[0] : undefined
+  return name === 'pnpm' || name === 'npm' || name === 'yarn' || name === 'bun' ? name : undefined
+}
+
+/**
+ * `packageManager` field or lockfile, searching upward so apps inside a monorepo
+ * use the workspace's package manager. Stops at the repository root (.git).
+ */
 export function detectPackageManager(root: string, declared?: string): PackageManager {
-  const fromField = declared?.split('@')[0]
-  if (fromField === 'pnpm' || fromField === 'npm' || fromField === 'yarn' || fromField === 'bun') {
-    return fromField
+  const own = fromPackageManagerField(declared)
+  if (own) return own
+  let dir = resolve(root)
+  while (true) {
+    for (const [file, manager] of LOCKFILES) {
+      if (existsSync(join(dir, file))) return manager
+    }
+    if (dir !== resolve(root) && existsSync(join(dir, 'package.json'))) {
+      try {
+        const field = fromPackageManagerField(
+          JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')).packageManager,
+        )
+        if (field) return field
+      } catch {
+        // unreadable package.json above the app: ignore
+      }
+    }
+    const parent = dirname(dir)
+    if (parent === dir || existsSync(join(dir, '.git'))) return 'npm'
+    dir = parent
   }
-  if (existsSync(join(root, 'pnpm-lock.yaml'))) return 'pnpm'
-  if (existsSync(join(root, 'yarn.lock'))) return 'yarn'
-  if (existsSync(join(root, 'bun.lock')) || existsSync(join(root, 'bun.lockb'))) return 'bun'
-  return 'npm'
 }
 
 export function detectProject(root: string): Project {

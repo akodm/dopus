@@ -12,7 +12,9 @@
     "format": "biome check --write .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r --filter ./packages/* test",
-    "example:build": "pnpm --filter next-app build"
+    "example:build": "pnpm --filter next-app build",
+    "example:e2e": "pnpm --filter next-app test:e2e",
+    "smoke": "node scripts/pack-smoke.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",

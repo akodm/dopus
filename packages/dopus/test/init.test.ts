@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { detectPackageManager, detectProject } from '../src/init/detect.js'
@@ -38,6 +38,16 @@ describe('detectProject', () => {
 
   it('prefers the packageManager field over lockfiles', () => {
     expect(detectPackageManager(nextApp(), 'yarn@4.1.0')).toBe('yarn')
+  })
+
+  it('finds the lockfile of an enclosing monorepo', () => {
+    const repo = nextApp()
+    mkdirSync(join(repo, '.git'))
+    const app = join(repo, 'apps', 'web')
+    mkdirSync(join(app, 'app'), { recursive: true })
+    writeFileSync(join(app, 'package.json'), '{"dependencies":{"next":"16.4.6"}}')
+    writeFileSync(join(app, 'tsconfig.json'), '{}')
+    expect(detectProject(app).packageManager).toBe('pnpm')
   })
 })
 

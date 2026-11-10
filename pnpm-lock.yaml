@@ -20,6 +20,9 @@ importers:
       '@ai-sdk/anthropic':
         specifier: 4.0.99
         version: 4.0.99(zod@4.6.7)
+      '@ai-sdk/react':
+        specifier: 4.0.170
+        version: 4.0.170(react@19.3.1)(zod@4.6.7)
       ai:
         specifier: 7.0.166
         version: 7.0.166(zod@4.6.7)
@@ -39,6 +42,9 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
     devDependencies:
+      '@ai-sdk/provider':
+        specifier: 4.0.37
+        version: 4.0.37
       '@types/node':
         specifier: ^24.0.0
         version: 24.19.2
@@ -51,6 +57,9 @@ importers:
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@types/node@24.19.2)(vite@8.3.7(@types/node@24.19.2))
 
   packages/dopus:
     dependencies:
