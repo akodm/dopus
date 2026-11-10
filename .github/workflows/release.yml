@@ -46,7 +46,8 @@ jobs:
       - run: npm install -g npm@^11.15.0
       - name: Publish to npm
         working-directory: packages/dopus
-        run: npm publish --access public --provenance
+        # --loglevel verbose shows the OIDC token exchange result if trusted publishing is misconfigured.
+        run: npm publish --access public --provenance --loglevel verbose
 
       - name: GitHub Release
         env:
