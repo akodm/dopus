@@ -261,7 +261,7 @@ Swap in a scripted `MockLanguageModelV4` from `ai/test` behind an environment va
 
 ## Status and roadmap
 
-dopus is at 0.1, so expect breaking changes before 1.0. It is tested on Next.js 16 with the Node.js runtime.
+dopus is pre-1.0, so expect breaking changes before 1.0. It is tested on Next.js 16 with the Node.js runtime.
 
 Planned next:
 

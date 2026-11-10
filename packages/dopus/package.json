@@ -1,6 +1,6 @@
 {
   "name": "dopus",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Drop an AI agent into your existing Next.js app — your server functions become its tools.",
   "license": "MIT",
   "author": "akodm",

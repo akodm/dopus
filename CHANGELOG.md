@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-11-10
 
 - `dopus infra aws`: writes `open-next.config.ts` with Lambda response streaming, installs `@opennextjs/aws`, prints an
   `sst.aws.Nextjs` snippet with the API key and approval secret as SST secrets.
