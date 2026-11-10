@@ -1,7 +1,11 @@
 name: Release
 
-# Push a tag like v0.1.1 to publish. npm authenticates this workflow with OIDC
-# (trusted publishing: npmjs.com → dopus → Settings → Trusted Publisher), so no token is stored.
+# Push a tag like v0.2.1 to release. npm authenticates this workflow with OIDC (trusted publishing:
+# npmjs.com → dopus → Settings → Trusted Publisher: akodm/dopus, release.yml, environment git-action-publisher,
+# permission "npm stage publish"), so no token is stored.
+#
+# The package is *staged*, not published: a maintainer approves it on npmjs.com (Staged Packages, 2FA) or with
+# `npm stage approve <stage-id>`. The GitHub Release is created as a draft; publish it after the npm approval.
 on:
   push:
     tags: ["v*"]
@@ -12,8 +16,10 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Must match the environment configured for the npm trusted publisher.
+    environment: git-action-publisher
     permissions:
-      contents: write # create the GitHub Release
+      contents: write # create the draft GitHub Release
       id-token: write # npm trusted publishing + provenance
     steps:
       - uses: actions/checkout@v7
@@ -42,14 +48,16 @@ jobs:
       - run: pnpm example:e2e
       - run: pnpm smoke
 
-      # Trusted publishing needs npm >= 11.5.1.
+      # Staged publishing needs npm >= 11.15.0.
       - run: npm install -g npm@^11.15.0
-      - name: Publish to npm
+      - name: Stage on npm
         working-directory: packages/dopus
         # --loglevel verbose shows the OIDC token exchange result if trusted publishing is misconfigured.
-        run: npm publish --access public --provenance --loglevel verbose
+        run: npm stage publish --access public --provenance --loglevel verbose
 
-      - name: GitHub Release
+      - name: Draft GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --title "$GITHUB_REF_NAME" --verify-tag \
+            --notes-file "$RUNNER_TEMP/notes.md"

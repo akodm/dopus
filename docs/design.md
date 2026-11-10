@@ -139,6 +139,8 @@ Verified 2026-11-10 with Docker 29 (no GCP account): the example's e2e suite pas
 ## Releasing
 
 1. Bump `packages/dopus/package.json` and `src/version.ts` (a test keeps them equal), add a `CHANGELOG.md` section.
-2. Commit, then push a tag `v<version>`. `.github/workflows/release.yml` runs every check (including e2e and the pack smoke
-   test), publishes with npm trusted publishing (OIDC, provenance) and creates the GitHub Release from the CHANGELOG section.
-3. 0.1.0 was published manually by the maintainer (first publish creates the package); later versions go through the workflow.
+2. Commit, then push a tag `v<version>`. `.github/workflows/release.yml` (environment `git-action-publisher`) runs every
+   check, then `npm stage publish` with trusted publishing (OIDC, provenance) and creates a *draft* GitHub Release.
+3. Approve the staged version on npmjs.com (Staged Packages, 2FA) or `npm stage approve <stage-id>`, then publish the
+   draft release. The npm trusted publisher only has the "npm stage publish" permission, so CI can never publish alone.
+4. 0.1.0 was published manually by the maintainer (first publish creates the package); later versions go through the workflow.
