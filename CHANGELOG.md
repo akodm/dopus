@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.7 — 2026-11-11
 
 - `dopus update`: brings the files `init` copied (chat UI, route, preset prompt) up to the installed version's
   templates. Untouched copies are replaced; files you edited are never replaced without asking (diff, keep and save
