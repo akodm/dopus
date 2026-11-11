@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Fix: a `ToolError` message (including translated `redirect()` / `notFound()` errors) now reaches the client as the
+  tool's `errorText` instead of a generic "Something went wrong". The chat history the client sends on the next turn
+  carries it, so the model still knows why an earlier call failed. Expected `ToolError`s are no longer passed to
+  `onError`, and unexpected tool errors are reported once instead of twice. Found with the first real-model run.
+- Example: `pnpm example:live` runs five scenarios against the real model (costs a few cents, not in CI).
+
 ## 0.2.0 — 2026-11-10
 
 - `dopus infra aws`: writes `open-next.config.ts` with Lambda response streaming, installs `@opennextjs/aws`, prints an

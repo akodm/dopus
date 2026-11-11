@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "vitest run"
+    "test:e2e": "vitest run",
+    "test:live": "node test/live-llm.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.99",

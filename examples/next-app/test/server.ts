@@ -71,11 +71,16 @@ export function user(text: string): UIMessage {
  * Sends the conversation like `useChat` does. When the last message is an assistant message
  * (an approval answer), the response continues that message, so it is rebuilt on top of it.
  */
-export async function chat(url: string, messages: UIMessage[], cookie?: string) {
+export async function chat(
+  url: string,
+  messages: UIMessage[],
+  cookie?: string,
+  context?: { locale?: string; page?: string },
+) {
   const response = await fetch(`${url}/api/agent`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, context }),
   })
   if (!response.ok)
     throw new Error(`agent route returned ${response.status}: ${await response.text()}`)
@@ -94,7 +99,10 @@ export async function chat(url: string, messages: UIMessage[], cookie?: string) 
   const last = messages.at(-1)
   const message = last?.role === 'assistant' ? structuredClone(last) : undefined
   for await (const update of readUIMessageStream({ message, stream })) assistant = update
-  if (!assistant) throw new Error('no assistant message')
+  if (!assistant) {
+    const errors = chunks.flatMap((c) => (c.type === 'error' ? [c.errorText] : []))
+    throw new Error(`no assistant message${errors.length ? `: ${errors.join('; ')}` : ''}`)
+  }
   return { chunks, assistant: structuredClone(assistant) }
 }
 
@@ -116,7 +124,11 @@ export function text(message: UIMessage) {
 /** What the client sends back after the user clicks Approve / Decline. */
 export function answer(message: UIMessage, approved: boolean): UIMessage {
   const copy = structuredClone(message)
-  const part = toolPart(copy) as { state: string; approval: { approved?: boolean } }
+  // The message may hold earlier, finished tool calls (e.g. a lookup before the write); answer the pending one.
+  const part = copy.parts.find((p) => 'state' in p && p.state === 'approval-requested') as
+    | { state: string; approval: { approved?: boolean } }
+    | undefined
+  if (!part) throw new Error(`no pending approval in ${JSON.stringify(copy.parts)}`)
   part.state = 'approval-responded'
   part.approval = { ...part.approval, approved }
   return copy

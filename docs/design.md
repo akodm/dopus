@@ -47,7 +47,8 @@ export const POST = createAgentHandler(agent)
 
 - Tool functions are called as `fn(input, { user, toolCallId, abortSignal })`; `output` maps results before the model sees them.
 - Errors: only `ToolError` messages (and translated Next `redirect`/`notFound`/`forbidden`/`unauthorized`) reach the model;
-  anything else is passed to `onError` and replaced with a generic message. The client always gets a generic error text.
+  anything else is passed to `onError` and replaced with a generic message. The client gets the same `ToolError` text as the model (it must: the history it sends back is what the model sees next
+  turn); any other error reaches it only as a generic text.
 - Approvals are HMAC-signed when `DOPUS_APPROVAL_SECRET` (or `approvalSecret`) is set; forged approvals are not executed.
 - Peer deps: `ai@^7`, `zod@^4`. The provider package is the user's own dependency.
 

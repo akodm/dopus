@@ -10,6 +10,8 @@ DOPUS_MOCK_MODEL=1 pnpm --filter next-app dev      # scripted model, no API key 
 ```
 
 With a real model: put `ANTHROPIC_API_KEY=...` in `examples/next-app/.env.local` and run without `DOPUS_MOCK_MODEL`.
+`pnpm example:live` (after `pnpm example:build`) then checks five scenarios against that model: sign-in lookup, a Korean
+reply, cancel with approval, another user's order, and an anonymous user. It costs a few cents and is not run in CI.
 
 `pnpm example:e2e` (after `pnpm example:build`) starts `next start` and checks that tools see the caller's session
 cookie, that the app's own permission checks still apply, and that writes wait for an approval.

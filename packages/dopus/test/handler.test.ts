@@ -175,12 +175,30 @@ describe('createAgentHandler', () => {
         ...silent,
       }),
     )
+    const onError = vi.fn()
+    const POST2 = createAgentHandler(
+      defineAgent({
+        model: scriptedModel(toolCallStep('secure', {}), textStep('Please sign in')),
+        tools: {
+          secure: defineTool(
+            async () => {
+              throw redirectError
+            },
+            { description: 'Secure', input: z.object({}) },
+          ),
+        },
+        onError,
+      }),
+    )
     const chunks = await readChunks(await POST(chatRequest([userMessage('x')])))
     expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain('/login')
-    // the client only gets a generic error text
+    // the client keeps the same text, so it survives in the history sent on the next turn
     expect(chunks.find((c) => c.type === 'tool-output-error')).toMatchObject({
-      errorText: 'Something went wrong. Please try again.',
+      errorText: expect.stringContaining('/login'),
     })
+    // an expected ToolError is not reported as a server error
+    await readChunks(await POST2(chatRequest([userMessage('x')])))
+    expect(onError).not.toHaveBeenCalled()
   })
 
   it('hides unexpected tool errors from the model and reports them', async () => {
@@ -201,10 +219,12 @@ describe('createAgentHandler', () => {
       ),
     }
     const POST = createAgentHandler(defineAgent({ model, tools, onError }))
-    await readChunks(await POST(chatRequest([userMessage('x')])))
+    const chunks = await readChunks(await POST(chatRequest([userMessage('x')])))
     const seen = JSON.stringify(model.doStreamCalls[1]?.prompt)
     expect(seen).not.toContain('db.internal')
     expect(seen).toContain('The \\"db\\" action failed.')
+    expect(JSON.stringify(chunks)).not.toContain('db.internal')
+    expect(onError).toHaveBeenCalledTimes(1)
     expect(onError).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringContaining('db.internal') }),
     )

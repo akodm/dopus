@@ -39,7 +39,10 @@ describe('tools inherit the requesting user (next start)', () => {
 
   it('turns redirect("/login") for anonymous users into a message for the model', async () => {
     const { assistant } = await chat(server.url, [user('list my orders')])
-    expect(toolPart(assistant).state).toBe('output-error')
+    expect(toolPart(assistant)).toMatchObject({
+      state: 'output-error',
+      errorText: expect.stringContaining('/login'),
+    })
     expect(text(assistant)).toContain('/login')
   })
 })

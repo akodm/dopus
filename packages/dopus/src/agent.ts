@@ -54,7 +54,7 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
     | 'onEnd'
     | 'onStepEnd'
   >
-  /** Called for errors; the client only ever sees a generic message. */
+  /** Called for unexpected errors (not `ToolError`); the client only sees a generic message for those. */
   onError?: (error: unknown) => void
   /**
    * While the stream is idle (e.g. a slow tool), send an SSE comment every this many ms so proxies
@@ -255,7 +255,10 @@ export function createAgentHandler(config: AgentConfig) {
         stream: result.stream,
         tools,
         originalMessages: messages,
+        // A ToolError is already safe for the model, so the client may keep it too: the chat history it
+        // sends back must carry the same text, or the model loses why an earlier call failed.
         onError: (error) => {
+          if (error instanceof ToolError) return error.message
           report(error)
           return 'Something went wrong. Please try again.'
         },

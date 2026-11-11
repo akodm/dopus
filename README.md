@@ -115,7 +115,7 @@ Only two kinds of error message reach the model:
 - a `ToolError` you throw on purpose, such as `throw new ToolError('Order o-1 has already shipped')`;
 - Next.js `redirect()`, `notFound()`, `forbidden()` and `unauthorized()`, which are translated into plain messages such as "the user is not signed in".
 
-Any other error goes to `onError` and is replaced with a generic message, so database errors and stack details stay on the server. The browser only ever sees a generic error text.
+Any other error goes to `onError` and is replaced with a generic message, so database errors and stack details stay on the server. The browser sees the same text as the model: the `ToolError` message, or the generic one.
 
 ## Permissions and security
 
@@ -274,6 +274,7 @@ Planned next:
 pnpm install
 pnpm build && pnpm lint && pnpm typecheck && pnpm test
 pnpm example:build && pnpm example:e2e   # next start + scripted model
+pnpm example:live                        # real model from examples/next-app/.env.local (costs cents)
 pnpm smoke                               # packed tarball → fresh app → dopus init → next build
 pnpm aws:emu                             # OpenNext build → local Lambda streaming invoke
 pnpm cf:e2e                              # dopus infra cloudflare → wrangler dev (workerd) → e2e
