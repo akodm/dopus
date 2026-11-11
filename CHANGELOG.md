@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — 2026-11-11
 
 - Fix: a `ToolError` message (including translated `redirect()` / `notFound()` errors) now reaches the client as the
   tool's `errorText` instead of a generic "Something went wrong". The chat history the client sends on the next turn
