@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.5 — 2026-11-11
 
 - Hooks: `beforeRequest` (return a `Response`, e.g. 429, to stop before the model runs), `onToolCall` (every tool call
   with outcome `success` / `error` / `denied`, input, output or original error, duration) and `onFinish` (token usage
