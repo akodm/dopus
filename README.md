@@ -27,13 +27,13 @@ pnpm dopus init
 
 `init` asks for a provider, an API key and a prompt preset, then:
 
-| Writes                                              | What it is                                                                    |
-| --------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `.env.local`                                        | Your API key and a generated `DOPUS_APPROVAL_SECRET`. Never `.env`. Mode 600. |
-| `agent.config.ts`                                   | Model, tools and prompt layers. Edit this.                                    |
-| `agent/prompts/preset.ts`, `agent/prompts/app.ts`   | Your prompt layers. Yours to edit.                                            |
-| `app/api/agent/route.ts`                            | `POST /api/agent`. It speaks the AI SDK `useChat` protocol.                   |
-| `components/agent/agent-chat.tsx` (+ `.module.css`) | Chat panel and floating widget.                                               |
+| Writes                                            | What it is                                                                    |
+| ------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `.env.local`                                      | Your API key and a generated `DOPUS_APPROVAL_SECRET`. Never `.env`. Mode 600. |
+| `agent.config.ts`                                 | Model, tools and prompt layers. Edit this.                                    |
+| `agent/prompts/preset.ts`, `agent/prompts/app.ts` | Your prompt layers. Yours to edit.                                            |
+| `app/api/agent/route.ts`                          | `POST /api/agent`. It speaks the AI SDK `useChat` protocol.                   |
+| `components/agent/agent-chat.tsx` (+ `.css`)      | Chat panel and floating widget. Plain CSS with `dopus-` classes.              |
 
 It also installs whatever is missing of `ai`, `zod`, `@ai-sdk/react` and the provider package. It checks that `.env.local` is git-ignored.
 
@@ -156,9 +156,9 @@ Anthropic gets an explicit cache breakpoint after layer 3. OpenAI and Gemini cac
 
 Both accept `api`, `suggestions`, `labels` (every UI string, for translation) and `className`.
 
-The UI shows each tool call as it runs. It renders an approve/decline card for confirmed tools and continues automatically once the user answers. It also has stop and retry buttons, and it does not send on Enter while an IME (Korean, Japanese, Chinese) is still composing.
+The UI shows each tool call as it runs. It renders an approve/decline card for confirmed tools and continues automatically once the user answers. When a tool has run, it calls `router.refresh()` so server components show the changed data. Closing the widget keeps the conversation. It also has stop and retry buttons, and it does not send on Enter while an IME (Korean, Japanese, Chinese) is still composing.
 
-Styling is a plain CSS module themed through `--dopus-*` variables, with dark mode included. It needs no Tailwind and no component library. The file is yours, so restyle it or swap in your own components.
+Styling is one plain CSS file (`agent-chat.css`) whose classes all start with `dopus-`, themed through `--dopus-*` variables, with dark mode included. It is deliberately not a CSS Module: create-next-app's Tailwind setup routes every `*.css` file, modules included, through its own Turbopack loader, which left module classes unstyled. It needs no Tailwind and no component library. The file is yours, so restyle it or swap in your own components.
 
 ## Configuration
 

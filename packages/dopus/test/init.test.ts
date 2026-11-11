@@ -14,7 +14,7 @@ const GENERATED = [
   'agent/prompts/app.ts',
   'app/api/agent/route.ts',
   'components/agent/agent-chat.tsx',
-  'components/agent/agent-chat.module.css',
+  'components/agent/agent-chat.css',
 ]
 
 describe('detectProject', () => {
@@ -134,7 +134,7 @@ describe('runInit', () => {
       'src/agent/prompts/preset.ts',
       'src/agent/prompts/app.ts',
       'src/components/agent/agent-chat.tsx',
-      'src/components/agent/agent-chat.module.css',
+      'src/components/agent/agent-chat.css',
     ])
     expect(result.skipped).toEqual(['src/app/api/agent/route.js'])
     expect(result.widgetImport).toBe('../components/agent/agent-chat')

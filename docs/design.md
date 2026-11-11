@@ -71,7 +71,7 @@ export const POST = createAgentHandler(agent)
 
 - `agent/prompts/preset.ts` — one of `general`, `customer-support`, `internal-ops` (`--preset`).
 - `agent/prompts/app.ts` — service description template + optional `locales` notes (tone/terminology per language).
-- `components/agent/agent-chat.tsx` + `.module.css` — `AgentChat` (panel) and `AgentWidget` (floating launcher):
+- `components/agent/agent-chat.tsx` + `.css` (global, `dopus-` prefixed; a CSS Module broke under create-next-app's Tailwind Turbopack rule) — `AgentChat` (panel) and `AgentWidget` (floating launcher):
   tool states, approve/decline card, stop/retry, suggestions, IME-safe Enter, `--dopus-*` CSS variables, dark mode.
   No Tailwind or component library needed.
 

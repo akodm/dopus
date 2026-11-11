@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+Found by installing dopus 0.2.1 into a fresh `create-next-app@16.4.6` project:
+
+- Fix: the chat UI was unstyled in create-next-app's default Tailwind setup, whose Turbopack rule for `*.css` also
+  catches CSS Modules. `dopus init` now writes `components/agent/agent-chat.css` (plain global CSS, every class
+  prefixed `dopus-`) instead of `agent-chat.module.css`. Existing projects: copy the new `agent-chat.tsx` and
+  `agent-chat.css` from `templates/ui/` (or run `dopus init --force`, which also rewrites the other generated files).
+- Chat UI: closing the widget no longer discards the conversation, and the page re-renders (`router.refresh()`)
+  after a tool ran, so server components show the changed data.
+- Prompt templates use named default exports, so `eslint-config-next` shows no warnings.
+- `dopus init --help` and `dopus infra <target> --help` print the help instead of an unknown-option error.
+- `pnpm smoke` now runs against a real `create-next-app` project: ESLint with zero warnings, build with
+  `cacheComponents`, and a check that the served page has the widget and its styles.
+
 ## 0.2.1 — 2026-11-11
 
 - Fix: a `ToolError` message (including translated `redirect()` / `notFound()` errors) now reaches the client as the

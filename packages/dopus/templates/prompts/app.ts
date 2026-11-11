@@ -6,11 +6,13 @@
  * Keep it stable: it is part of the cached prompt prefix, so per-request values belong in `runtime`
  * in agent.config.ts instead.
  */
-export default `Service: <name> — <what it does, in one sentence>
+const appPrompt = `Service: <name> — <what it does, in one sentence>
 Users: <who uses it and what they usually come to do>
 Key concepts: <the nouns your users use, e.g. "workspace", "order", "plan", and what they mean>
 Rules: <anything the agent must know, e.g. refund policy, business hours>
 Human help: <how users reach a person, e.g. support@example.com or the Help page>`
+
+export default appPrompt
 
 /** Optional notes per language (tone, terminology). The one matching the request locale is used. */
 export const locales: Record<string, string> = {

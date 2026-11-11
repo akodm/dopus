@@ -177,11 +177,7 @@ export async function runInit(options: InitOptions, io: InitIO): Promise<InitRes
       [routeFile.replace(/\.ts$/, '.js')],
     ],
     [chatFile, () => readTemplate('ui/agent-chat.tsx'), []],
-    [
-      at('components/agent/agent-chat.module.css'),
-      () => readTemplate('ui/agent-chat.module.css'),
-      [],
-    ],
+    [at('components/agent/agent-chat.css'), () => readTemplate('ui/agent-chat.css'), []],
   ]
   for (const [file, content, alternatives] of files) {
     const existing = [file, ...alternatives].find((f) => existsSync(join(root, f)))

@@ -13,8 +13,8 @@ describe('example app copies', () => {
       'examples/next-app/components/agent/agent-chat.tsx',
     ],
     [
-      'packages/dopus/templates/ui/agent-chat.module.css',
-      'examples/next-app/components/agent/agent-chat.module.css',
+      'packages/dopus/templates/ui/agent-chat.css',
+      'examples/next-app/components/agent/agent-chat.css',
     ],
     [
       'packages/dopus/templates/prompts/presets/customer-support.ts',

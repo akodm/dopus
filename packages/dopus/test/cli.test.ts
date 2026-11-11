@@ -34,6 +34,17 @@ describe('dopus CLI (built)', () => {
     expect(run.stdout + run.stderr).toContain('No package.json')
   })
 
+  it('prints help for a subcommand --help', () => {
+    for (const args of [
+      ['init', '--help'],
+      ['infra', 'aws', '-h'],
+    ]) {
+      const run = spawnSync('node', [cli, ...args], { encoding: 'utf8' })
+      expect(run.status).toBe(0)
+      expect(run.stdout).toContain('dopus init [options]')
+    }
+  })
+
   it('rejects unknown commands', () => {
     expect(spawnSync('node', [cli, 'nope'], { encoding: 'utf8' }).status).toBe(1)
   })

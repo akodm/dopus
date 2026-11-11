@@ -166,6 +166,8 @@ async function infra(args: string[]) {
 async function main() {
   const [command, ...rest] = process.argv.slice(2)
   if (command === '--version' || command === '-v') return console.log(VERSION)
+  // `dopus init --help` / `dopus infra aws -h` print the help instead of failing on an unknown option.
+  if (rest.includes('--help') || rest.includes('-h')) return console.log(HELP)
   if (command === 'init') return init(rest)
   if (command === 'infra') return infra(rest)
   console.log(HELP)
