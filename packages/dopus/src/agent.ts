@@ -52,8 +52,8 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
   /** Called once per tool call: ran (`success` / `error`) or declined by the user (`denied`). For audit logs. */
   onToolCall?: (event: ToolCallEvent) => void | Promise<void>
   /**
-   * Called once per request when the reply is finished: tokens, steps, model (usage tracking), and the whole
-   * conversation including the reply (to save chat history in your database).
+   * Called once per request when the reply is finished: tokens, steps, model (usage tracking), and the conversation
+   * (to save chat history in your database: `user`, `conversationId`, `newMessages`).
    */
   onFinish?: (event: FinishEvent) => void | Promise<void>
   /** Maximum model steps (tool round trips) per request. Default 10. */
@@ -118,11 +118,24 @@ export interface FinishEvent {
   finishReason: string
   durationMs: number
   /**
-   * The conversation after this reply, as the chat UI holds it (`UIMessage[]`). Save it to restore the chat later
-   * (the chat UI's `history.load`). It came from the browser, so treat it as the user's own data, not as trusted.
+   * Which conversation this is: the id of its first message. The same across reloads (when the chat UI restores
+   * its `history`), new after "New chat". Sent by the browser, so store it under `user`, never on its own.
+   */
+  conversationId: string
+  /**
+   * What this request added or changed: the user's message (when the request started with one) and the
+   * assistant's reply. After an approval the reply is the same message, continued, so upsert by `id`.
+   * Saving only these keeps earlier stored messages out of the browser's reach.
+   */
+  newMessages: UIMessage[]
+  /**
+   * The whole conversation after this reply, as the chat UI holds it. Handy to store one snapshot per
+   * conversation; it comes from the browser, so it can differ from what you stored earlier.
    */
   messages: UIMessage[]
 }
+
+type ConversationFields = Pick<FinishEvent, 'conversationId' | 'newMessages' | 'messages'>
 
 const KEEP_ALIVE = new TextEncoder().encode(': keep-alive\n\n')
 
@@ -448,15 +461,15 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
 
     // onFinish needs the usage (from streamText) and the final messages (from the UI stream); call it once both are in.
     const finish: {
-      usage?: Omit<FinishEvent, 'messages'>
-      messages?: UIMessage[]
+      usage?: Omit<FinishEvent, keyof ConversationFields>
+      conversation?: ConversationFields
       done?: boolean
       emit: () => Promise<void>
     } = {
       async emit() {
-        if (this.done || !this.usage || !this.messages) return
+        if (this.done || !this.usage || !this.conversation) return
         this.done = true
-        await runHook(config.onFinish, { ...this.usage, messages: this.messages }, report)
+        await runHook(config.onFinish, { ...this.usage, ...this.conversation }, report)
       },
     }
 
@@ -515,9 +528,14 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
         stream: result.stream,
         tools,
         originalMessages: messages,
-        onEnd: async ({ messages: final, isAborted }) => {
+        onEnd: async ({ messages: final, responseMessage, isAborted }) => {
           if (isAborted) return
-          finish.messages = final
+          const last = messages.at(-1)
+          finish.conversation = {
+            conversationId: messages[0]?.id ?? responseMessage.id,
+            newMessages: last?.role === 'user' ? [last, responseMessage] : [responseMessage],
+            messages: final,
+          }
           await finish.emit()
         },
         // A ToolError is already safe for the model, so the client may keep it too: the chat history it

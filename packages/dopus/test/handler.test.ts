@@ -539,6 +539,81 @@ describe('hooks', () => {
     )
   })
 
+  describe('saving the conversation from onFinish', () => {
+    function setup(...steps: LanguageModelV4StreamPart[][]) {
+      const onFinish = vi.fn()
+      const remove = defineTool(async () => ({ removed: true }), {
+        description: 'Remove',
+        input: z.object({}),
+        confirm: true,
+      })
+      const POST = createAgentHandler(
+        defineAgent({
+          model: scriptedModel(...steps),
+          tools: { ...tools, remove },
+          identify: () => ({ id: 'u-1' }),
+          onFinish,
+          ...silent,
+        }),
+      )
+      const event = (n: number) =>
+        onFinish.mock.calls[n]?.[0] as {
+          conversationId: string
+          newMessages: UIMessage[]
+          messages: UIMessage[]
+          user: unknown
+        }
+      return { POST, event }
+    }
+
+    it('gives the conversation id and only what this request added', async () => {
+      const { POST, event } = setup(textStep('First.'), textStep('Second.'))
+      const u1 = userMessage('hi', 'u1')
+      const a1 = await assistantMessage(await readChunks(await POST(chatRequest([u1]))))
+      expect(event(0)).toMatchObject({ user: { id: 'u-1' }, conversationId: 'u1' })
+      expect(event(0).newMessages.map((m) => [m.id, m.role])).toEqual([
+        ['u1', 'user'],
+        [a1.id, 'assistant'],
+      ])
+
+      const u2 = userMessage('again', 'u2')
+      await readChunks(await POST(chatRequest([u1, a1, u2])))
+      expect(event(1).conversationId).toBe('u1')
+      expect(event(1).newMessages.map((m) => m.id)).toEqual(['u2', expect.any(String)])
+      expect(event(1).newMessages[1]?.parts).toContainEqual(
+        expect.objectContaining({ type: 'text', text: 'Second.' }),
+      )
+      expect(event(1).messages).toHaveLength(4)
+    })
+
+    it('after an approval, newMessages is the same reply continued (upsert by id)', async () => {
+      const { POST, event } = setup(
+        textStep('First.'),
+        toolCallStep('remove', {}),
+        textStep('Removed.'),
+      )
+      const u1 = userMessage('hi', 'u1')
+      const a1 = await assistantMessage(await readChunks(await POST(chatRequest([u1]))))
+      const u2 = userMessage('remove it', 'u2')
+      const asked = await assistantMessage(await readChunks(await POST(chatRequest([u1, a1, u2]))))
+      const part = asked.parts.find((p) => p.type === 'tool-remove') as {
+        state: string
+        approval: { approved?: boolean }
+      }
+      part.state = 'approval-responded'
+      part.approval = { ...part.approval, approved: true }
+      await readChunks(await POST(chatRequest([u1, a1, u2, asked])))
+
+      const continued = event(2)
+      expect(continued.conversationId).toBe('u1')
+      expect(continued.newMessages).toHaveLength(1)
+      expect(continued.newMessages[0]?.id).toBe(asked.id)
+      expect(continued.newMessages[0]?.parts).toContainEqual(
+        expect.objectContaining({ type: 'tool-remove', state: 'output-available' }),
+      )
+    })
+  })
+
   it('a throwing hook is reported and does not break the reply', async () => {
     const onError = vi.fn()
     const POST = createAgentHandler(

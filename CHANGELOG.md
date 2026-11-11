@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `onFinish` also gives `conversationId` (the id of the conversation's first message: stable across reloads with
+  `history`, new after "New chat") and `newMessages` (what this request added: the user's message and the reply;
+  after an approval, the same reply continued, so upsert by id). With `user` from `identify`, that is everything
+  needed to save chats on the server, append-only. README: database recipe updated.
+
 ## 0.2.9 — 2026-11-11
 
 - Chat history: the chat UI takes `history={{ load, save }}` to keep the conversation across reloads; off by default.

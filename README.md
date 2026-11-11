@@ -256,26 +256,34 @@ export function Agent({ userId, ...props }: AgentChatProps & { userId: string })
 }
 ```
 
-In your database: save on the server, where you know the user, and load from the client.
+In your database: save on the server, where you know the user, and load from the client. `onFinish` gives you who
+(`user`, from `identify`), which conversation (`conversationId`) and what this request added (`newMessages`: the user's
+message and the agent's reply, with tool calls and results inside).
 
 ```ts
-// agent.config.ts
-onFinish: async ({ user, messages }) => {
-  if (user) await db.chat.upsert({ userId: user.id, messages })   // needs `identify`
+// agent.config.ts (needs `identify`, so `user` is set)
+onFinish: async ({ user, conversationId, newMessages }) => {
+  if (!user) return
+  for (const message of newMessages) {
+    // Upsert by id: after an approval the reply arrives again, continued. Key by user too, since
+    // conversationId comes from the browser.
+    await db.chatMessage.upsert({ id: message.id, userId: user.id, conversationId, message })
+  }
 },
 ```
 
 ```tsx
-// components/agent/agent.tsx: loadChat is your server action returning the saved messages
-;<AgentWidget
-  history={{
-    load: () => loadChat(),
-    save: (m) => {
-      if (m.length === 0) clearChat()
-    },
-  }}
-/>
+// components/agent/agent.tsx: loadChat is your server action returning the latest conversation's messages
+;<AgentWidget history={{ load: () => loadChat() }} />
 ```
+
+- **`conversationId`** is the id of the conversation's first message: the same after a reload (when `history.load`
+  restores it), new after "New chat". A list of past conversations is yours to build from it.
+- **`newMessages`** rather than the whole history: the browser sends the whole conversation with every request, so
+  saving only what this request added keeps earlier stored messages out of its reach. `messages` (the whole
+  conversation) is there too if one snapshot per conversation is enough.
+- **Stopped or failed turns** do not reach `onFinish`. To keep the user's message anyway, save it in `beforeRequest`
+  (it gets `user` and `messages`).
 
 Things to know:
 
@@ -340,7 +348,7 @@ defineAgent({
   },
 
   // Once per request, when the reply is done: tokens summed over all steps.
-  // also gets `messages`: the whole conversation after this reply (see "Chat history")
+  // also gets conversationId, newMessages and messages, to save the chat (see "Chat history")
   onFinish: async ({ user, model, usage, steps, finishReason, durationMs }) => {
     await db.usage.insert({ userId: user?.id, model: model.modelId, ...usage })
   },
