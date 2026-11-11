@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.11 — 2026-11-12
 
 - Public tools: `defineTool(fn, { ..., public: true })` offers a tool to users who are not signed in. With `identify`
   defined and returning `undefined`, only public tools reach the model, and the prompt tells it the rest needs
