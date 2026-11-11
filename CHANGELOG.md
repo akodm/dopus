@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.8 — 2026-11-11
 
 - Fix: typing a new message while approval cards were open broke the chat. The model lost its own proposal and
   asked for the same changes again, and once one of those older cards had been approved, every later request in that
