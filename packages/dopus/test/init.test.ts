@@ -81,7 +81,15 @@ describe('runInit', () => {
     expect(read(root, '.gitignore')).toContain('.env*.local')
 
     expect(calls.install).toEqual([
-      ['dopus', 'ai@^7', 'zod@^4', '@ai-sdk/openai@^4', '@ai-sdk/react@^4'],
+      [
+        'dopus',
+        'ai@^7',
+        'zod@^4',
+        '@ai-sdk/openai@^4',
+        '@ai-sdk/react@^4',
+        'react-markdown@^10',
+        'remark-gfm@^4',
+      ],
     ])
   })
 
@@ -157,7 +165,9 @@ describe('runInit', () => {
     const result = await runInit({ cwd: root, provider: 'anthropic', yes: true, force: true }, io)
     expect(result.overwritten).toEqual(GENERATED)
     expect(read(root, 'agent.config.ts')).toContain('defineAgent')
-    expect(calls.install).toEqual([['@ai-sdk/anthropic@^4', '@ai-sdk/react@^4']])
+    expect(calls.install).toEqual([
+      ['@ai-sdk/anthropic@^4', '@ai-sdk/react@^4', 'react-markdown@^10', 'remark-gfm@^4'],
+    ])
     expect(read(root, 'agent/prompts/preset.ts')).toContain('in-app assistant')
   })
 

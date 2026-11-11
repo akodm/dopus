@@ -134,14 +134,14 @@ Any other error goes to `onError` and is replaced with a generic message, so dat
 
 **Prompt injection.** Assume the model can be talked into anything: by the user, or by text inside tool results that other people wrote (a task title, a comment, an email body). dopus does not rely on the model resisting it. The limits are structural:
 
-| Layer                  | What it guarantees                                                                                 |
-| ---------------------- | -------------------------------------------------------------------------------------------------- |
-| Permission inheritance | A tool can do only what the signed-in user can do through your server functions.                   |
-| `confirm: true`        | The user sees the exact input and must approve; signed approvals cannot be forged or edited.       |
-| Plain-text chat UI     | Replies render as text, never HTML or Markdown, so no XSS and no image-URL data leaks.             |
-| Request limits         | `limits.maxBodyBytes` (1 MB) and `limits.maxMessageChars` (8000) answer 413 before the model runs. |
-| `maxSteps`             | At most 10 model ↔ tool round trips per request.                                                   |
-| Core prompt            | Tells the model that tool results are data, not instructions. Helpful, but not a guarantee.        |
+| Layer                  | What it guarantees                                                                                                      |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Permission inheritance | A tool can do only what the signed-in user can do through your server functions.                                        |
+| `confirm: true`        | The user sees the exact input and must approve; signed approvals cannot be forged or edited.                            |
+| Chat UI rendering      | Markdown without raw HTML, images never loaded, only http(s)/mailto/relative links: no XSS and no image-URL data leaks. |
+| Request limits         | `limits.maxBodyBytes` (1 MB) and `limits.maxMessageChars` (8000) answer 413 before the model runs.                      |
+| `maxSteps`             | At most 10 model ↔ tool round trips per request.                                                                        |
+| Core prompt            | Tells the model that tool results are data, not instructions. Helpful, but not a guarantee.                             |
 
 Your part, so an injected instruction cannot cause damage:
 
@@ -175,7 +175,7 @@ Anthropic gets an explicit cache breakpoint after layer 3. OpenAI and Gemini cac
 
 Both accept `api`, `suggestions`, `labels` (every UI string, for translation) and `className`.
 
-The UI shows each tool call as it runs. It renders an approve/decline card for confirmed tools and continues automatically once the user answers. When a tool has run, it calls `router.refresh()` so server components show the changed data. Closing the widget keeps the conversation. It also has stop and retry buttons, and it does not send on Enter while an IME (Korean, Japanese, Chinese) is still composing.
+The UI shows each tool call as it runs. It renders an approve/decline card for confirmed tools and continues automatically once the user answers. When a tool has run, it calls `router.refresh()` so server components show the changed data. Closing the widget keeps the conversation, and a "New chat" button clears it. Assistant replies render as Markdown (tables, lists, code) through `react-markdown` with `remark-gfm`, which `init` installs. Raw HTML is never rendered, images show only their alt text, and links keep only http(s), mailto and relative URLs. If a request is over the size limit (413), the UI says so and offers a new chat instead of a useless retry. It also has stop and retry buttons, and it does not send on Enter while an IME (Korean, Japanese, Chinese) is still composing.
 
 Styling is one plain CSS file (`agent-chat.css`) whose classes all start with `dopus-`, themed through `--dopus-*` variables, with dark mode included. It is deliberately not a CSS Module: create-next-app's Tailwind setup routes every `*.css` file, modules included, through its own Turbopack loader, which left module classes unstyled. It needs no Tailwind and no component library. The file is yours, so restyle it or swap in your own components.
 

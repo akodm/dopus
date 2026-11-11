@@ -14,7 +14,16 @@ import {
   type UIMessage,
 } from 'ai'
 import { useRouter } from 'next/navigation'
-import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
+import {
+  type ComponentProps,
+  type FormEvent,
+  type KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
+import Markdown, { defaultUrlTransform } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import './agent-chat.css'
 
 const DEFAULT_LABELS = {
@@ -23,6 +32,8 @@ const DEFAULT_LABELS = {
   send: 'Send',
   stop: 'Stop',
   retry: 'Retry',
+  newChat: 'New chat',
+  tooLong: 'Too long to send. Start a new chat or shorten your message.',
   error: 'Something went wrong.',
   thinking: 'Thinking…',
   running: 'Running',
@@ -137,6 +148,41 @@ function ToolCall({
   }
 }
 
+/**
+ * Assistant replies are Markdown (tables, lists, bold). Rendered with react-markdown, which never renders raw HTML.
+ * Images are shown as their alt text and never loaded, and links keep only http(s), mailto and relative URLs:
+ * a reply influenced by prompt injection cannot load a URL that leaks data, or run script.
+ */
+const MARKDOWN_COMPONENTS: ComponentProps<typeof Markdown>['components'] = {
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer nofollow">
+      {children}
+    </a>
+  ),
+  img: ({ alt }) => (alt ? <span>[{alt}]</span> : null),
+  table: ({ children }) => (
+    <div className="dopus-table">
+      <table>{children}</table>
+    </div>
+  ),
+}
+
+function AssistantText({ text }: { text: string }) {
+  return (
+    <div className="dopus-text dopus-markdown">
+      <Markdown
+        remarkPlugins={[remarkGfm]}
+        components={MARKDOWN_COMPONENTS}
+        urlTransform={(url) =>
+          /^(https?:|mailto:|\/|#)/i.test(url) ? defaultUrlTransform(url) : ''
+        }
+      >
+        {text}
+      </Markdown>
+    </div>
+  )
+}
+
 function Message({
   message,
   labels,
@@ -151,11 +197,14 @@ function Message({
       {message.parts.map((part, index) => {
         const key = `${message.id}-${index}`
         if (part.type === 'text') {
-          return part.text ? (
+          if (!part.text) return null
+          return message.role === 'assistant' ? (
+            <AssistantText key={key} text={part.text} />
+          ) : (
             <div key={key} className="dopus-text">
               {part.text}
             </div>
-          ) : null
+          )
         }
         if (isToolUIPart(part)) {
           return <ToolCall key={key} part={part} labels={labels} onRespond={onRespond} />
@@ -182,18 +231,27 @@ export function AgentChat({
         body: () => ({ context: { page: window.location.pathname, locale: navigator.language } }),
       }),
   )
-  const { messages, sendMessage, status, stop, error, regenerate, addToolApprovalResponse } =
-    useChat({
-      transport,
-      sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-      // A tool ran, so data the page shows may have changed (server actions call revalidatePath):
-      // re-render the current route's server components.
-      onFinish: ({ message }) => {
-        if (message.parts.some((part) => isToolUIPart(part) && part.state === 'output-available')) {
-          router.refresh()
-        }
-      },
-    })
+  const {
+    messages,
+    setMessages,
+    sendMessage,
+    status,
+    stop,
+    error,
+    clearError,
+    regenerate,
+    addToolApprovalResponse,
+  } = useChat({
+    transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    // A tool ran, so data the page shows may have changed (server actions call revalidatePath):
+    // re-render the current route's server components.
+    onFinish: ({ message }) => {
+      if (message.parts.some((part) => isToolUIPart(part) && part.state === 'output-available')) {
+        router.refresh()
+      }
+    },
+  })
   const [input, setInput] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
   const busy = status === 'submitted' || status === 'streaming'
@@ -225,12 +283,29 @@ export function AgentChat({
 
   const respond = (id: string, approved: boolean) => addToolApprovalResponse({ id, approved })
 
+  function newChat() {
+    if (busy) stop()
+    clearError()
+    setMessages([])
+    setInput('')
+  }
+
+  // The route answers 413 when the history is over its size limit; retrying cannot help then.
+  const tooLong = (error as { statusCode?: number } | undefined)?.statusCode === 413
+
   return (
     <section
       className={['dopus-chat', className].filter(Boolean).join(' ')}
       aria-label={labels.title}
     >
-      <header className="dopus-header">{labels.title}</header>
+      <header className="dopus-header">
+        <span>{labels.title}</span>
+        {messages.length > 0 && (
+          <button type="button" className="dopus-link dopus-new-chat" onClick={newChat}>
+            {labels.newChat}
+          </button>
+        )}
+      </header>
       <div ref={listRef} className="dopus-messages" aria-live="polite">
         {messages.length === 0 && suggestions.length > 0 && (
           <div className="dopus-suggestions">
@@ -252,9 +327,13 @@ export function AgentChat({
         {status === 'submitted' && <div className="dopus-thinking">{labels.thinking}</div>}
         {error && (
           <div className="dopus-error" role="alert">
-            {labels.error}{' '}
-            <button type="button" className="dopus-link" onClick={() => regenerate()}>
-              {labels.retry}
+            {tooLong ? labels.tooLong : labels.error}{' '}
+            <button
+              type="button"
+              className="dopus-link"
+              onClick={() => (tooLong ? newChat() : regenerate())}
+            >
+              {tooLong ? labels.newChat : labels.retry}
             </button>
           </div>
         )}

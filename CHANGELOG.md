@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Chat UI: assistant replies render as Markdown (`react-markdown` + `remark-gfm`, installed by `init`). Raw HTML is
+  never rendered, images show only alt text, links keep only http(s), mailto and relative URLs. Claude's tables and
+  bold text showed as raw `|` and `**` before.
+- Chat UI: a "New chat" button (`labels.newChat`), and a 413 from the size limits shows `labels.tooLong` with a new-chat
+  action instead of a retry that would fail again.
+- Existing projects: copy `templates/ui/agent-chat.tsx` and `agent-chat.css`, then
+  `pnpm add react-markdown@^10 remark-gfm@^4`.
+
 ## 0.2.4 — 2026-11-11
 
 - Time budget: `createAgentHandler(agent, { maxDuration })`. Once 75% of the route's `maxDuration` has passed, the

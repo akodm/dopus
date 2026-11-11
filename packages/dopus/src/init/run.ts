@@ -207,6 +207,9 @@ export async function runInit(options: InitOptions, io: InitIO): Promise<InitRes
     ['zod', 'zod@^4'],
     [info.packageName, `${info.packageName}@^4`],
     ['@ai-sdk/react', '@ai-sdk/react@^4'],
+    // The chat UI renders assistant replies as Markdown.
+    ['react-markdown', 'react-markdown@^10'],
+    ['remark-gfm', 'remark-gfm@^4'],
   ]
   const missing = wanted.filter(([name]) => !project.dependencies[name]).map(([, spec]) => spec)
   if (missing.length > 0) {

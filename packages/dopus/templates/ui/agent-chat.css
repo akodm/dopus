@@ -44,6 +44,10 @@
 }
 
 .dopus-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 12px 16px;
   font-weight: 600;
   border-bottom: 1px solid var(--dopus-border);
@@ -256,4 +260,92 @@
   font-size: 22px;
   cursor: pointer;
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.2);
+}
+
+/* Assistant replies (Markdown). Compact spacing for a chat bubble. */
+.dopus-markdown {
+  white-space: normal;
+}
+.dopus-markdown > :first-child {
+  margin-top: 0;
+}
+.dopus-markdown > :last-child {
+  margin-bottom: 0;
+}
+.dopus-markdown p,
+.dopus-markdown ul,
+.dopus-markdown ol,
+.dopus-markdown pre,
+.dopus-table {
+  margin: 0 0 8px;
+}
+.dopus-table {
+  overflow-x: auto;
+}
+.dopus-markdown ul,
+.dopus-markdown ol {
+  padding-left: 20px;
+}
+.dopus-markdown ul {
+  list-style: disc;
+}
+.dopus-markdown ol {
+  list-style: decimal;
+}
+.dopus-markdown h1,
+.dopus-markdown h2,
+.dopus-markdown h3,
+.dopus-markdown h4 {
+  margin: 12px 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.dopus-markdown a {
+  color: inherit;
+  text-decoration: underline;
+}
+.dopus-markdown strong {
+  font-weight: 600;
+}
+.dopus-markdown code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--dopus-surface);
+  font:
+    12px / 1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+.dopus-markdown pre {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--dopus-surface);
+  overflow-x: auto;
+}
+.dopus-markdown pre code {
+  padding: 0;
+  background: none;
+}
+.dopus-markdown table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.dopus-markdown th,
+.dopus-markdown td {
+  padding: 4px 8px;
+  border: 1px solid var(--dopus-border);
+  text-align: left;
+  vertical-align: top;
+}
+.dopus-markdown th {
+  background: var(--dopus-surface);
+  font-weight: 600;
+}
+
+/* After .dopus-link, which resets font. */
+.dopus-new-chat {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--dopus-muted);
 }
