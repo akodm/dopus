@@ -37,17 +37,20 @@ const calls = (toolName: string, inputs: object[]) =>
     ),
     { type: 'finish', finishReason: { unified: 'tool-calls', raw: undefined }, usage },
   ])
-const call = (toolName: string, input: object) => calls(toolName, [input])
 
 /**
  * Scripted stand-in for an LLM, used by the e2e tests (DOPUS_MOCK_MODEL=1).
  * "who" → getCurrentUser, "orders" → listMyOrders, "cancel <id> [<id>...]" → cancelOrder (one call per id,
  * in one step), "export" → startExport, the app's finished-job notice → getExport.
  * After a tool result it replies with `result: <json>` so tests can read what the tool returned.
+ * A tool that is not offered (anonymous user, tool not `public`) gets "Sign in to use <tool>." instead of a call.
  */
 export function mockModel() {
   return new MockLanguageModelV4({
-    doStream: async ({ prompt }) => {
+    doStream: async ({ prompt, tools }) => {
+      const offered = new Set((tools ?? []).map((t) => t.name))
+      const call = (toolName: string, input: object) =>
+        offered.has(toolName) ? calls(toolName, [input]) : text(`Sign in to use ${toolName}.`)
       const last = prompt.at(-1)
       if (last?.role === 'tool') {
         const result = last.content.find((part) => part.type === 'tool-result')
@@ -61,6 +64,7 @@ export function mockModel() {
       if (finished?.[1]) return call('getExport', { jobId: finished[1] })
       const cancel = /cancel\s+(.+)/i.exec(userText)
       const ids = cancel?.[1]?.match(/\S+/g) ?? []
+      if (ids.length > 0 && !offered.has('cancelOrder')) return text('Sign in to use cancelOrder.')
       if (ids.length > 0)
         return calls(
           'cancelOrder',

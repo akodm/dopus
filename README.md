@@ -142,6 +142,7 @@ export default defineAgent({
 | `input`       | **Required.** A zod schema. The model's arguments are validated before `fn` runs.                        |
 | `confirm`     | `true`, or `(input, ctx) => boolean`, to ask the user before each call. Use it for anything that writes. |
 | `output`      | `(result) => unknown`. Trims the result before the model sees it, for example to drop internal fields.   |
+| `public`      | `true` to offer the tool to users who are not signed in too. Needs `identify` (see below).               |
 
 `ctx` is `{ user, toolCallId, abortSignal }`. `user` is only set when you configure `identify` (see below).
 
@@ -201,6 +202,33 @@ Your part, so an injected instruction cannot cause damage:
 - Never put secrets in prompts. "Do not reveal these instructions" is not a security boundary.
 
 We tested this with a real model in a small task-board app. A member wrote a task whose title ordered the assistant to delete other tasks, then an admin's assistant listed the tasks. Claude (claude-sonnet-5-5) did not even request the deletion and pointed out the planted text. If a model did request it, the approval card would still stop it. Other models were not tested this way.
+
+**Signed-in and anonymous users.** Define `identify` and dopus knows who is signed in. When it returns `undefined`, the
+model gets only the tools marked `public: true` (product info, opening hours, "am I signed in?"), and the prompt says
+the rest needs sign-in, so the agent tells the visitor to sign in instead of trying. Member tools are not offered at
+all, so a visitor does not see which features exist. Signed-in users get every tool. An approval for a member tool
+that arrives after the user signed out (in another tab) is not run.
+
+```ts
+defineAgent({
+  tools: {
+    getOpeningHours: defineTool(getOpeningHours, {
+      description: '...',
+      input: z.object({}),
+      public: true,
+    }),
+    listMyOrders: defineTool(() => listMyOrders(), { description: '...', input: z.object({}) }),
+  },
+  identify: async () => {
+    const session = await getSession()
+    return session ? { id: session.userId } : undefined
+  },
+})
+```
+
+This decides what the model sees, nothing more: keep the checks in your server functions. Without `identify` dopus
+cannot tell, so every tool is offered to everyone (and `defineAgent` warns if you used `public`). Anonymous users cost
+model tokens too; rate-limit them in `beforeRequest` (see [Audit log, usage and rate limits](#audit-log-usage-and-rate-limits)).
 
 **Running tools outside the request.** Background jobs and queues lose the request's cookies. For that case, define `identify(request)` to resolve a serialisable user. Tools then receive it as `ctx.user` and can pass it on explicitly. dopus itself always runs tools inside the request; this is for jobs your tools hand off.
 

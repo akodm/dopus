@@ -799,3 +799,103 @@ describe('stale approvals (the user typed instead of answering the cards)', () =
     expect(onError).not.toHaveBeenCalled()
   })
 })
+
+describe('public tools (users who are not signed in)', () => {
+  function setup(
+    steps: LanguageModelV4StreamPart[][],
+    options: { identify?: boolean; secret?: string } = {},
+  ) {
+    const getProduct = vi.fn(async () => ({ name: 'Keyboard' }))
+    const cancelOrder = vi.fn(async (input: { orderId: string }) => ({ cancelled: input.orderId }))
+    const onError = vi.fn()
+    const model = scriptedModel(...steps)
+    const POST = createAgentHandler(
+      defineAgent({
+        model,
+        tools: {
+          getProduct: defineTool(getProduct, {
+            description: 'Product info',
+            input: z.object({}),
+            public: true,
+          }),
+          cancelOrder: defineTool(cancelOrder, {
+            description: 'Cancel an order',
+            input: z.object({ orderId: z.string() }),
+            confirm: true,
+          }),
+        },
+        ...(options.identify === false
+          ? {}
+          : {
+              identify: (request: Request) =>
+                request.headers.get('cookie') ? { id: 'user-1' } : undefined,
+            }),
+        approvalSecret: options.secret,
+        onError,
+      }),
+    )
+    const offered = (call: number) =>
+      (model.doStreamCalls[call]?.tools ?? []).map((t) => ('name' in t ? t.name : ''))
+    return { POST, model, getProduct, cancelOrder, onError, offered }
+  }
+
+  it('offers only public tools to an anonymous user and says sign-in is needed for the rest', async () => {
+    const { POST, model, offered } = setup([textStep('Sign in first.')])
+    await readChunks(await POST(chatRequest([userMessage('cancel o1')])))
+    expect(offered(0)).toEqual(['getProduct'])
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain('Not signed in.')
+  })
+
+  it('offers every tool to a signed-in user, without the note', async () => {
+    const { POST, model, offered } = setup([textStep('ok')])
+    await readChunks(await POST(chatRequest([userMessage('hi')], { cookie: 'session=a' })))
+    expect(offered(0)).toEqual(['getProduct', 'cancelOrder'])
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).not.toContain('Not signed in.')
+  })
+
+  it('without identify, offers every tool (dopus cannot tell who is signed in) and warns', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { POST, offered } = setup([textStep('ok')], { identify: false })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('`public` tools need `identify`'))
+    warn.mockRestore()
+    await readChunks(await POST(chatRequest([userMessage('hi')])))
+    expect(offered(0)).toEqual(['getProduct', 'cancelOrder'])
+  })
+
+  it('never runs an approval for a hidden tool after the user signed out', async () => {
+    const secret = 'test-secret-0123456789abcdef'
+    const { POST, model, cancelOrder, onError } = setup(
+      [toolCallStep('cancelOrder', { orderId: 'o1' }), textStep('Please sign in.')],
+      { secret },
+    )
+    const first = userMessage('cancel o1')
+    const asked = await assistantMessage(
+      await readChunks(await POST(chatRequest([first], { cookie: 'session=a' }))),
+    )
+    const part = asked.parts.find((p) => p.type === 'tool-cancelOrder') as {
+      state: string
+      approval: { approved?: boolean }
+    }
+    expect(part.state).toBe('approval-requested')
+    part.state = 'approval-responded'
+    part.approval = { ...part.approval, approved: true }
+
+    // Signed out in another tab, then pressed Approve: no cookie on this request.
+    const chunks = await readChunks(await POST(chatRequest([first, asked])))
+    expect(cancelOrder).not.toHaveBeenCalled()
+    expect(chunks.some((c) => c.type === 'error')).toBe(false)
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ type: 'text-delta', delta: 'Please sign in.' }),
+    )
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).toContain(
+      'this needs the user to be signed in',
+    )
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('runs public tools for an anonymous user', async () => {
+    const { POST, getProduct } = setup([toolCallStep('getProduct', {}), textStep('Keyboard.')])
+    await readChunks(await POST(chatRequest([userMessage('what is it?')])))
+    expect(getProduct).toHaveBeenCalled()
+  })
+})

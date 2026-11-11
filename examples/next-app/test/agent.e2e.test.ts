@@ -37,13 +37,10 @@ describe('tools inherit the requesting user (next start)', () => {
     expect(orders.every((o) => o.owner === 'alice')).toBe(true)
   })
 
-  it('turns redirect("/login") for anonymous users into a message for the model', async () => {
+  it('anonymous users only get public tools: member tools are not offered at all', async () => {
     const { assistant } = await chat(server.url, [user('list my orders')])
-    expect(toolPart(assistant)).toMatchObject({
-      state: 'output-error',
-      errorText: expect.stringContaining('/login'),
-    })
-    expect(text(assistant)).toContain('/login')
+    expect(assistant.parts.some((part) => part.type.startsWith('tool-'))).toBe(false)
+    expect(text(assistant)).toBe('Sign in to use listMyOrders.')
   })
 })
 

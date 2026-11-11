@@ -201,7 +201,30 @@ export function defineAgent<TOOLS extends DopusToolSet>(
       throw new TypeError(`defineAgent: tool name "${name}" must match [a-zA-Z0-9_-]{1,64}`)
     }
   }
+  if (!config.identify && Object.values(config.tools).some((t) => t.options.public)) {
+    console.warn(
+      '[dopus] `public` tools need `identify` in defineAgent: without it dopus cannot tell who is signed in, so every tool is offered to everyone.',
+    )
+  }
   return config
+}
+
+/**
+ * The tools this request may use: all of them for a signed-in user, only `public` ones for an anonymous user.
+ * Without `identify` dopus cannot tell who is signed in, so every tool is offered (the server functions decide).
+ */
+export function visibleTools(
+  config: Pick<AgentConfig, 'tools' | 'identify'>,
+  user: AgentUser | undefined,
+) {
+  if (!config.identify || user) return { tools: config.tools, hidden: [] as string[] }
+  const tools: DopusToolSet = {}
+  const hidden: string[] = []
+  for (const [name, t] of Object.entries(config.tools)) {
+    if (t.options.public) tools[name] = t
+    else hidden.push(name)
+  }
+  return { tools, hidden }
 }
 
 interface BuildContext {
@@ -316,6 +339,14 @@ export function readClientContext(body: unknown, request: Request): ClientContex
   return { locale, page: clean(raw.page, 200) }
 }
 
+/** Reason recorded for a confirmation of a tool that needs sign-in, answered by a user who is not signed in. */
+export const SIGN_IN_REASON =
+  'Not run: this needs the user to be signed in, and they are not (anymore). Tell them to sign in first.'
+
+/** Runtime prompt line for anonymous users when some tools are hidden from them. */
+export const SIGNED_OUT_NOTE =
+  'Not signed in. Only features that work without an account are available; if the user asks for something else, tell them to sign in first.'
+
 /** Reason recorded for a confirmation the conversation moved past (the model reads it). */
 export const NOT_RUN_REASON =
   'Not run: the user sent a new message instead of approving it. If they still want it, call the tool again so they can approve it.'
@@ -329,13 +360,18 @@ type Part = UIMessage['parts'][number]
  * approved-but-unrun call makes every later request fail with a missing tool result. A stale approval is never
  * executed: the user has moved on, so it may no longer be what they want.
  */
-export function settleStaleApprovals(messages: UIMessage[]): UIMessage[] {
+export function settleStaleApprovals(
+  messages: UIMessage[],
+  /** Tools this request may not use (sign-in needed): their open or approved cards are never run either. */
+  hidden: readonly string[] = [],
+): UIMessage[] {
   const last = messages.length - 1
   return messages.map((message, index) => {
-    if (message.role !== 'assistant' || index === last) return message
+    if (message.role !== 'assistant') return message
     const pending = (part: Part) =>
       isToolUIPart(part) &&
-      (part.state === 'approval-requested' || part.state === 'approval-responded')
+      (part.state === 'approval-requested' || part.state === 'approval-responded') &&
+      (index !== last || hidden.includes(getToolName(part)))
     if (!message.parts.some(pending)) return message
     return {
       ...message,
@@ -348,7 +384,11 @@ export function settleStaleApprovals(messages: UIMessage[]): UIMessage[] {
           approval: {
             id: part.approval.id,
             approved: false,
-            reason: declined ? part.approval.reason : NOT_RUN_REASON,
+            reason: declined
+              ? part.approval.reason
+              : index === last
+                ? SIGN_IN_REASON
+                : NOT_RUN_REASON,
           },
         } as Part
       }),
@@ -406,7 +446,8 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
     }
 
     const user = await config.identify?.(request)
-    const { tools, toolApproval } = buildTools(config.tools, {
+    const visible = visibleTools(config, user)
+    const { tools, toolApproval } = buildTools(visible.tools, {
       user,
       report,
       onToolCall: config.onToolCall,
@@ -418,7 +459,7 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
     if (!validated.success) {
       return errorResponse(400, 'Invalid messages')
     }
-    const messages = settleStaleApprovals(validated.data)
+    const messages = settleStaleApprovals(validated.data, visible.hidden)
     const tooLong = messages.some(
       (message) =>
         message.role === 'user' &&
@@ -456,7 +497,11 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
     }
 
     const client = readClientContext(body, request)
-    const runtime = { ...client, ...(await config.runtime?.(request, { user, client })) }
+    const runtime = {
+      ...client,
+      ...(visible.hidden.length > 0 ? { access: SIGNED_OUT_NOTE } : {}),
+      ...(await config.runtime?.(request, { user, client })),
+    }
     const approvalSecret = config.approvalSecret ?? process.env.DOPUS_APPROVAL_SECRET
 
     // onFinish needs the usage (from streamText) and the final messages (from the UI stream); call it once both are in.

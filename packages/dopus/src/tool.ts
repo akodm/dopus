@@ -41,6 +41,12 @@ export interface ToolOptions<SCHEMA extends z.ZodType, RESULT> {
    * the job finishes the agent is told, reads the result with another of your tools, and continues.
    */
   job?: (result: Awaited<RESULT>) => string
+  /**
+   * Also offered to users who are not signed in. Needs `identify` in the agent config: when it returns
+   * `undefined`, only public tools are given to the model, so features that need an account stay out of sight.
+   * This only decides which tools the model sees; keep the permission checks in your server functions.
+   */
+  public?: boolean
 }
 
 export type ToolFunction<INPUT, RESULT> = (input: INPUT, ctx: ToolContext) => RESULT

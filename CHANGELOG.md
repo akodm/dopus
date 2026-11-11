@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Public tools: `defineTool(fn, { ..., public: true })` offers a tool to users who are not signed in. With `identify`
+  defined and returning `undefined`, only public tools reach the model, and the prompt tells it the rest needs
+  sign-in. An approval for a member tool that arrives after the user signed out is not run. Without `identify`
+  nothing changes (every tool is offered; `defineAgent` warns if `public` is used).
+- Behavior change for apps that define `identify`: anonymous users no longer get tools that are not marked `public`.
+  Mark the ones visitors should keep.
+- Example app: `identify` from the session cookie, `getCurrentUser` is public.
+
 ## 0.2.10 — 2026-11-11
 
 - `onFinish` also gives `conversationId` (the id of the conversation's first message: stable across reloads with

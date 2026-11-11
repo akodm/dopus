@@ -19,6 +19,19 @@ source of model text. The UI acts only on IDs started in that conversation, caps
 waits while an approval is open. The follow-up needs the chat open in a browser; work that must go on without the user
 stays in the app's worker. This keeps every agent turn short and inside a user request.
 
+Direction (fixed 2026-11-12): an assistant that does only what the signed-in user, with their role, may do; quick to
+add to a Next.js app with an LLM API key; the app's existing server functions as tools the model chooses from; deploy
+config for some platforms and a channel for long-running work; chat history in the app's database (`onFinish`) or the
+tab's sessionStorage, safe across several tabs of the same user.
+
+Public tools (decided 2026-11-12): a tool marked `public` is also offered to users who are not signed in. With
+`identify` returning `undefined`, only public tools reach the model and the runtime layer says sign-in is needed for the
+rest; an approval for a hidden tool (signed out in another tab, then Approve) is settled as not run. Without `identify`
+dopus cannot tell, so every tool is offered and `defineAgent` warns. Visibility only: the server functions keep the
+permission checks. Hiding by role (`access: (user) => boolean`) is the same mechanism and waits for a real need.
+MCP: possible through `@ai-sdk/mcp`, but external tools do not inherit the user's permissions; prefer wrapping the needed
+call in a server function. If added: remote HTTP servers only, an `allow` list, writes confirmed by default.
+
 ## Package shape
 
 One npm package, `dopus`:

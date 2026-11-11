@@ -50,6 +50,7 @@ const RUNTIME_LABELS: Record<string, string> = {
   locale: 'Response language',
   role: 'User role',
   page: 'Current page (reported by the browser)',
+  access: 'Access',
 }
 
 /** Picks `ko-KR`, then `ko`, from the locale notes. */

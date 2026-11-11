@@ -115,13 +115,8 @@ try {
     const { assistant } = await chat(server.url, [user('Show my orders.')])
     show(assistant)
     check(
-      'tool reports the redirect',
-      tools(assistant).some(
-        (t) =>
-          t.name === 'listMyOrders' &&
-          t.state === 'output-error' &&
-          /\/login/.test(t.errorText ?? ''),
-      ),
+      'member tools are not offered (no listMyOrders call)',
+      !tools(assistant).some((t) => t.name === 'listMyOrders'),
     )
     check('tells the user to sign in', /sign|log ?in|\/login/i.test(text(assistant)))
   })
