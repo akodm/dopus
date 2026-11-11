@@ -1,0 +1,33 @@
+{
+  "ui/agent-chat.tsx": {
+    "ff662fe56e84cfd0": "0.1.0",
+    "89475c1e29eb011b": "0.2.2",
+    "af6a34c9f15d4bef": "0.2.5",
+    "e0ff5f54b6823dba": "0.2.6"
+  },
+  "ui/agent-chat.module.css": {
+    "8ecfa2904dee75e9": "0.1.0"
+  },
+  "prompts/presets/general.ts": {
+    "10068289d8dfbf09": "0.1.0",
+    "fc75d0ecdeb38b7f": "0.2.2"
+  },
+  "prompts/presets/customer-support.ts": {
+    "2fdd5a26b25c23ae": "0.1.0",
+    "95bd1451466fb32b": "0.2.2"
+  },
+  "prompts/presets/internal-ops.ts": {
+    "2b150cc147d78e44": "0.1.0",
+    "c4b308fa69493fb8": "0.2.2",
+    "d5e08199cf6b45c2": "0.2.3"
+  },
+  "route": {
+    "17498e892a470ee4": "0.1.0",
+    "c44baa5927649535": "0.2.4"
+  },
+  "ui/agent-chat.css": {
+    "72f30cfb90fe5255": "0.2.2",
+    "65d193ef3df15ecc": "0.2.5",
+    "a33f338eb017ad66": "0.2.6"
+  }
+}

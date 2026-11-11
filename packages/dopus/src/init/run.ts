@@ -69,7 +69,7 @@ export function installArgs(packageManager: PackageManager, packages: string[], 
   return [...ADD_COMMAND[packageManager], ...(dev ? ['-D'] : []), ...packages]
 }
 
-function toImportPath(fromFile: string, toFileWithoutExt: string) {
+export function toImportPath(fromFile: string, toFileWithoutExt: string) {
   const path = relative(dirname(fromFile), toFileWithoutExt).split('\\').join('/')
   return path.startsWith('.') ? path : `./${path}`
 }

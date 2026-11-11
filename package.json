@@ -18,7 +18,8 @@
     "aws:emu": "node scripts/lambda-emu.mjs",
     "cf:e2e": "node scripts/cloudflare-e2e.mjs",
     "gcp:e2e": "node scripts/gcp-e2e.mjs",
-    "example:live": "pnpm --filter next-app test:live"
+    "example:live": "pnpm --filter next-app test:live",
+    "templates:history": "node scripts/template-history.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",

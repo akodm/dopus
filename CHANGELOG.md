@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `dopus update`: brings the files `init` copied (chat UI, route, preset prompt) up to the installed version's
+  templates. Untouched copies are replaced; files you edited are never replaced without asking (diff, keep and save
+  the new template as `<file>.new`, replace, or skip). `--dry-run`, `--yes` (edited files get `.new`), `--force`,
+  `--no-install`. `agent.config.ts`, `app.ts` and `.env.local` are never touched. It recognises untouched copies
+  from every release since 0.1.0, so existing projects can upgrade straight from any of them.
+
 ## 0.2.6 — 2026-11-11
 
 - Background jobs: `defineTool(fn, { job: (result) => result.jobId })` marks a tool that starts work elsewhere (a

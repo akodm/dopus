@@ -9,12 +9,14 @@ import { InitError } from './init/detect.js'
 import { type InitIO, installArgs, runInit } from './init/run.js'
 import { PRESETS, type PresetId } from './init/templates.js'
 import { PROVIDERS, type ProviderId } from './providers.js'
+import { type FileStatus, runUpdate, type UpdateIO } from './update/run.js'
 import { VERSION } from './version.js'
 
 const HELP = `dopus ${VERSION}
 
 Usage:
   dopus init [options]        Add an AI agent to this Next.js app
+  dopus update [options]      Update the chat UI, route and preset prompt that init copied
   dopus infra aws [options]   Prepare the agent route for AWS Lambda (OpenNext streaming + SST snippet)
   dopus infra cloudflare      Prepare the app for Cloudflare Workers (@opennextjs/cloudflare)
   dopus infra gcp             Prepare the app for Cloud Run (standalone build + Dockerfile)
@@ -27,6 +29,13 @@ Options for init:
   --no-install           Do not install dependencies
   --force                Overwrite generated files that already exist
   --cwd <dir>            Project root (default: current directory)
+
+Options for update (first install the new version: pnpm add dopus@latest):
+  --dry-run              Show what would change; write nothing
+  -y, --yes              Do not ask: files you edited get the new template next to them as <file>.new
+  --force                Replace files you edited too
+  --no-install           Do not install dependencies
+  --cwd <dir>            Project root
 
 Options for infra:
   -y, --yes              Do not ask before installing @opennextjs/aws
@@ -134,6 +143,79 @@ async function init(args: string[]) {
   p.outro('Done.')
 }
 
+const STATUS: Record<FileStatus, string> = {
+  'up-to-date': 'up to date',
+  updated: 'updated',
+  created: 'created',
+  modified: 'has your changes: would ask (run without --dry-run)',
+  overwritten: 'replaced (your changes are gone)',
+  kept: 'kept your version',
+  'saved-new': 'kept your version; new template saved as .new next to it',
+  missing: 'not found (not created by dopus init?)',
+}
+
+function colorDiff(text: string) {
+  if (!process.stdout.isTTY) return text
+  return text
+    .split('\n')
+    .map((line) =>
+      line.startsWith('+')
+        ? `\x1b[32m${line}\x1b[0m`
+        : line.startsWith('-')
+          ? `\x1b[31m${line}\x1b[0m`
+          : line.startsWith('@@')
+            ? `\x1b[36m${line}\x1b[0m`
+            : line,
+    )
+    .join('\n')
+}
+
+async function update(args: string[]) {
+  const { values } = parseArgs({
+    args,
+    options: {
+      'dry-run': { type: 'boolean' },
+      yes: { type: 'boolean', short: 'y' },
+      force: { type: 'boolean' },
+      install: { type: 'boolean', default: true },
+      'no-install': { type: 'boolean' },
+      cwd: { type: 'string' },
+    },
+    allowNegative: true,
+  })
+  p.intro(`dopus ${VERSION} · update${values['dry-run'] ? ' (dry run)' : ''}`)
+  p.log.info(
+    `Templates come from the installed dopus (${VERSION}). For the newest, run \`pnpm add dopus@latest\` first.`,
+  )
+  const updateIO: UpdateIO = {
+    ...io,
+    async choose(message, options) {
+      return cancelled(await p.select({ message, options }))
+    },
+    diff: (text) => console.log(colorDiff(text || '(no differences)')),
+  }
+  const result = await runUpdate(
+    {
+      cwd: values.cwd ?? process.cwd(),
+      dryRun: values['dry-run'],
+      yes: values.yes,
+      force: values.force,
+      install: values['no-install'] ? false : values.install,
+    },
+    updateIO,
+  )
+  p.note(
+    result.files
+      .map(({ file, status, from }) => `${file}: ${STATUS[status]}${from ? ` (was ${from})` : ''}`)
+      .join('\n'),
+    'Files',
+  )
+  if (result.files.some((f) => f.status === 'saved-new')) {
+    p.log.info('Merge each .new file into yours, then delete it.')
+  }
+  p.outro('What changed: https://github.com/akodm/dopus/blob/main/CHANGELOG.md')
+}
+
 async function infra(args: string[]) {
   const [target, ...rest] = args
   const runners = { aws: runInfraAws, cloudflare: runInfraCloudflare, gcp: runInfraGcp }
@@ -170,6 +252,7 @@ async function main() {
   if (rest.includes('--help') || rest.includes('-h')) return console.log(HELP)
   if (command === 'init') return init(rest)
   if (command === 'infra') return infra(rest)
+  if (command === 'update') return update(rest)
   console.log(HELP)
   if (command && command !== '--help' && command !== '-h') process.exitCode = 1
 }

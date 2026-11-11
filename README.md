@@ -83,6 +83,27 @@ dopus init [--provider openai|anthropic|google] [--model <id>]
 
 `--yes` runs without prompts. It needs `--provider` and skips the API key prompt, so add the key to `.env.local` yourself afterwards.
 
+### Updating
+
+`init` copies files into your project, so a new dopus version does not change them by itself. After upgrading the
+package, bring them up to date:
+
+```bash
+pnpm add dopus@latest
+pnpm dopus update            # --dry-run to only see what would change
+```
+
+`update` handles the files `init` copied: the chat UI (`agent-chat.tsx`, `agent-chat.css`), the route and the preset
+prompt. It never touches `agent.config.ts`, `agent/prompts/app.ts` or `.env.local`.
+
+- A file you never edited (it matches a template some dopus version shipped) is replaced.
+- A file you edited is never replaced silently. You choose: see the diff, keep yours and get the new template next to
+  it as `<file>.new` to merge by hand, replace it, or skip. `--yes` always takes the `.new` route; `--force` replaces.
+- Packages the new chat UI needs are installed (`--no-install` prints the command instead).
+
+Commit first, so `git diff` shows exactly what changed. The [changelog](CHANGELOG.md) says what each version changed
+and anything to do in `agent.config.ts`.
+
 ## Tools
 
 ```ts
@@ -490,8 +511,6 @@ dopus is pre-1.0, so expect breaking changes before 1.0. It is tested on Next.js
 
 Planned next, within the lightweight scope above:
 
-- a command that updates your copies of the chat UI and route when the templates change (it also brings background
-  job support into projects created before it);
 - tool input schemas inferred from TypeScript types.
 
 ## Development
@@ -501,7 +520,8 @@ pnpm install
 pnpm build && pnpm lint && pnpm typecheck && pnpm test
 pnpm example:build && pnpm example:e2e   # next start + scripted model
 pnpm example:live                        # real model from examples/next-app/.env.local (costs cents)
-pnpm smoke                               # packed tarball → fresh app → dopus init → next build
+pnpm smoke                               # packed tarball → fresh app → init (older release) → update → next build
+pnpm templates:history                   # after changing a template: record its hash for `dopus update`
 pnpm aws:emu                             # OpenNext build → local Lambda streaming invoke
 pnpm cf:e2e                              # dopus infra cloudflare → wrangler dev (workerd) → e2e
 pnpm gcp:e2e                             # dopus infra gcp → docker build/run (Cloud Run style) → e2e
