@@ -46,7 +46,11 @@ jobs:
       - run: pnpm test
       - run: pnpm example:build
       - run: pnpm example:e2e
-      - run: pnpm --filter next-app exec playwright install --with-deps --only-shell chromium
+      # --with-deps adds apt packages (mostly fonts); the runner image already has the libraries Chromium needs, so
+      # an apt mirror outage should not block the run.
+      - run: |
+          pnpm --filter next-app exec playwright install --with-deps --only-shell chromium ||
+          pnpm --filter next-app exec playwright install --only-shell chromium
       - run: pnpm example:ui
       - run: pnpm smoke
 
