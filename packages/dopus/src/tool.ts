@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import { JOB_USAGE } from './job.js'
 
 /**
  * Identity of the user who sent the agent request.
@@ -34,6 +35,12 @@ export interface ToolOptions<SCHEMA extends z.ZodType, RESULT> {
   confirm?: ConfirmOption<z.infer<SCHEMA>>
   /** Map the function's return value before it is sent to the model (trim fields, hide secrets). */
   output?: (result: Awaited<RESULT>) => unknown
+  /**
+   * Marks a tool that starts a background job and returns at once (hands work to a queue, a Lambda, ...).
+   * Return the job's ID from the function's result. The chat UI waits for that ID on its `channel`; when
+   * the job finishes the agent is told, reads the result with another of your tools, and continues.
+   */
+  job?: (result: Awaited<RESULT>) => string
 }
 
 export type ToolFunction<INPUT, RESULT> = (input: INPUT, ctx: ToolContext) => RESULT
@@ -74,9 +81,10 @@ export function isDopusTool(value: unknown): value is DopusTool {
 }
 
 export function toolDescription(
-  options: Pick<ToolOptions<z.ZodType, unknown>, 'description' | 'usage'>,
+  options: Pick<ToolOptions<z.ZodType, unknown>, 'description' | 'usage' | 'job'>,
 ) {
   const description = options.description.trim()
   const usage = options.usage?.trim()
-  return usage ? `${description}\n\nWhen to use: ${usage}` : description
+  const text = usage ? `${description}\n\nWhen to use: ${usage}` : description
+  return options.job ? `${text}\n\n${JOB_USAGE}` : text
 }

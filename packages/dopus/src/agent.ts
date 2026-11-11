@@ -15,6 +15,7 @@ import {
   toUIMessageStream,
   type UIMessage,
 } from 'ai'
+import { isJobId, JOB_PART, jobNotice, withJob } from './job.js'
 import { ToolError, translateNextError } from './next-errors.js'
 import { buildInstructions, type PromptLayers, type RuntimeContext } from './prompt.js'
 import { type AgentUser, type DopusToolSet, isDopusTool, toolDescription } from './tool.js'
@@ -219,7 +220,17 @@ export function buildTools(tools: DopusToolSet, ctx: BuildContext) {
         const base = { tool: name, toolCallId, input, user: ctx.user }
         try {
           const result = await fn(input, { user: ctx.user, toolCallId, abortSignal })
-          const output = options.output ? options.output(result) : result
+          const mapped = options.output ? options.output(result) : result
+          let output = mapped
+          if (options.job) {
+            const jobId = options.job(result)
+            if (!isJobId(jobId)) {
+              throw new TypeError(
+                `tools.${name}: job() must return an ID matching [A-Za-z0-9_.:-]{1,128}`,
+              )
+            }
+            output = withJob(mapped, jobId)
+          }
           await runHook(
             ctx.onToolCall,
             { ...base, outcome: 'success', output, durationMs: Date.now() - started },
@@ -353,6 +364,13 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
         message.parts.some((part) => part.type === 'text' && part.text.length > maxMessageChars),
     )
     if (tooLong) return errorResponse(413, 'Message is too long')
+    const badJob = messages.some((message) =>
+      message.parts.some(
+        (part) =>
+          part.type === JOB_PART && !isJobId((part as { data?: { id?: unknown } }).data?.id),
+      ),
+    )
+    if (badJob) return errorResponse(400, 'Invalid job notice')
 
     const early = await config.beforeRequest?.({ request, user, messages })
     if (early instanceof Response) return early
@@ -384,7 +402,14 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
       ...config.callOptions,
       model: config.model,
       instructions: buildInstructions(config.prompt, runtime),
-      messages: await convertToModelMessages(messages, { tools }),
+      messages: await convertToModelMessages(messages, {
+        tools,
+        // A finished-job notice becomes server-written text; other data parts stay out of the prompt.
+        convertDataPart: (part) =>
+          part.type === JOB_PART
+            ? { type: 'text', text: jobNotice((part.data as { id: string }).id) }
+            : undefined,
+      }),
       tools,
       toolApproval,
       stopWhen: isStepCount(maxSteps),

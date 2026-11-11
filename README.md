@@ -21,8 +21,9 @@ quick server-function calls inside one request, usually a few seconds.
 
 **What it is not.** dopus stays small on purpose. These are out of scope:
 
-- Long-running or background work. A tool should finish in seconds. Hand longer jobs to your own queue with a
-  start-job tool and a status tool (see [Timeouts and long-running tools](#timeouts-and-long-running-tools)).
+- Running long work itself. A tool should finish in seconds. Longer jobs run in your own queue, Lambda or worker; a
+  tool starts them, and the agent picks up again when your app announces they finished (see
+  [Background jobs](#background-jobs)).
 - Autonomous, scheduled or multi-agent workflows.
 - Built-in memory, RAG or a vector store. If you need search over documents, expose it as a tool.
 - Frameworks other than Next.js, and the Pages Router.
@@ -202,7 +203,8 @@ Anthropic gets an explicit cache breakpoint after layer 3. OpenAI and Gemini cac
 - `<AgentChat />`: the panel;
 - `<AgentWidget />`: a floating launcher that opens the panel.
 
-Both accept `api`, `suggestions`, `labels` (every UI string, for translation) and `className`.
+Both accept `api`, `suggestions`, `labels` (every UI string, for translation), `className`, and `channel` /
+`maxJobFollowUps` for [background jobs](#background-jobs).
 
 The UI shows each tool call as it runs. It renders an approve/decline card for confirmed tools and continues automatically once the user answers. When a tool has run, it calls `router.refresh()` so server components show the changed data. Closing the widget keeps the conversation, and a "New chat" button clears it. Assistant replies render as Markdown (tables, lists, code) through `react-markdown` with `remark-gfm`, which `init` installs. Raw HTML is never rendered, images show only their alt text, and links keep only http(s), mailto and relative URLs. If a request is over the size limit (413), the UI says so and offers a new chat instead of a useless retry. It also has stop and retry buttons, and it does not send on Enter while an IME (Korean, Japanese, Chinese) is still composing.
 
@@ -317,8 +319,92 @@ The job runs in your queue or background worker, outside the request, so it does
 permissions in `startExportJob` and pass the user to the job explicitly (see `identify` and `ctx.user`). Have `getExportJob`
 check that the job belongs to the caller.
 
+With a status tool alone, the user has to ask "is it done?". To have the agent continue by itself when the job finishes,
+mark the start tool with `job` and give the chat UI a channel: see [Background jobs](#background-jobs).
+
 **If a turn is cut anyway**, tools that already ran stay done. "Retry" asks the model again and may call a tool again.
 Tools behind `confirm: true` need a new approval; make other writes idempotent.
+
+## Background jobs
+
+For work that takes longer than a request: a Lambda that calls an LLM for a minute, a report, a bulk import. The tool
+starts the job and returns at once; your worker does the work; your app announces "job X finished" on a channel it
+already has (Supabase Realtime, a WebSocket, SSE, polling). The chat UI hears it and the agent continues: it reads the
+result with another of your tools and does what the user asked next.
+
+```
+user: "build the workload report, then assign unassigned tasks to whoever is least busy"
+  → startWorkloadReport          returns { jobId } at once; the agent says it started, the turn ends
+  … your worker runs for a minute, saves the result, publishes "job-7 finished" on your channel …
+  → the chat UI hears job-7      sends a notice carrying only the ID; a new turn starts
+  → getReportResult({ jobId })   your tool reads the result and checks it belongs to the user
+  → assignTask(...)              confirmed tools still stop at the approval card
+```
+
+**Server**: mark the tool that starts the job, and add a tool that reads the result.
+
+```ts
+startReport: defineTool(() => startReportJob(), {           // invoke the Lambda / enqueue, return { jobId } at once
+  description: 'Starts the workload report. Takes about a minute.',
+  input: z.object({}),
+  job: (result) => result.jobId,                              // this tool starts a background job
+}),
+getReportResult: defineTool((input) => readReport(input.jobId), {   // check the job belongs to the caller
+  description: 'Reads a report job by its id: status and, when done, the report.',
+  usage: 'After the app says a report job has finished.',
+  input: z.object({ jobId: z.string() }),
+}),
+```
+
+`job` returns the job's ID (letters, digits, `_ . : -`, up to 128 characters). dopus tells the model the job runs in
+the background and that it will be told when it finishes, so it does not poll.
+
+**Client**: give the chat a `channel`. It holds functions, so create it in a client component, once:
+
+```tsx
+// components/agent/agent.tsx
+'use client'
+import { type AgentChannel, type AgentChatProps, AgentWidget } from './agent-chat'
+import { supabase } from '@/lib/supabase/client'
+
+const channel: AgentChannel = {
+  subscribe(finished) {
+    const ch = supabase
+      .channel('jobs', { config: { private: true } })
+      .on('broadcast', { event: 'job-done' }, ({ payload }) => finished(payload.jobId))
+      .subscribe()
+    return () => {
+      supabase.removeChannel(ch)
+    }
+  },
+}
+
+export function Agent(props: AgentChatProps) {
+  return <AgentWidget {...props} channel={channel} />
+}
+```
+
+Any source works: `new EventSource(url)`, a WebSocket, or a `setInterval` that asks your API which jobs finished. Call
+`finished(jobId)` for each one; return a function that stops listening. Then use `<Agent />` in your layout instead of
+`<AgentWidget />`.
+
+**How it is kept safe:**
+
+- **The channel is a doorbell, not a mailbox.** Only the job ID goes from the channel to the server. The text the model
+  sees ("Background job X has finished…") is written by the server, and the result comes from your tool, which checks
+  permissions. A forged or replayed event can at most make the agent look up a job the user can already read.
+- **Only this chat's jobs.** The UI reacts only to IDs that a tool in this conversation returned and that it has not
+  reported yet. Another tab, or a new chat, ignores them.
+- **Follow-ups are capped.** After `maxJobFollowUps` (default 3) automatic turns in a row, a finished job is shown in
+  the chat but the agent waits for the user's next message, so a job that starts another job cannot loop.
+- **Approvals still apply.** An automatic turn stops at the approval card like any other.
+
+**Limits:**
+
+- The follow-up runs only while the chat is open in a browser. If the user closes the tab, the result is still in your
+  app (show it there); the agent just does not act on it. Work that must continue without the user belongs in your
+  worker, not in the agent.
+- Each finished job costs one more model call.
 
 ## Deploying
 
@@ -404,7 +490,8 @@ dopus is pre-1.0, so expect breaking changes before 1.0. It is tested on Next.js
 
 Planned next, within the lightweight scope above:
 
-- a command that updates your copies of the chat UI and route when the templates change;
+- a command that updates your copies of the chat UI and route when the templates change (it also brings background
+  job support into projects created before it);
 - tool input schemas inferred from TypeScript types.
 
 ## Development

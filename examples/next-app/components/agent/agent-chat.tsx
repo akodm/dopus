@@ -4,6 +4,7 @@
  * Chat UI for the dopus agent. Copied by `dopus init`; this file is yours to edit.
  * Talks to POST /api/agent with the AI SDK `useChat` protocol.
  * Styles: ./agent-chat.css — plain global CSS with `dopus-` class names (works with or without Tailwind).
+ * Background jobs: pass a `channel` and the agent continues by itself when a job it started finishes.
  */
 import { useChat } from '@ai-sdk/react'
 import {
@@ -19,6 +20,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -44,6 +46,8 @@ const DEFAULT_LABELS = {
   declined: 'Declined',
   failed: 'Failed',
   details: 'Details',
+  jobRunning: 'Working in the background',
+  jobDone: 'Background task finished',
   open: 'Open assistant',
   close: 'Close assistant',
 }
@@ -57,6 +61,35 @@ export interface AgentChatProps {
   /** Example prompts shown before the first message. */
   suggestions?: string[]
   className?: string
+  /**
+   * Where the app announces finished background jobs (Supabase Realtime, a WebSocket, SSE, polling...).
+   * When a job started in this chat finishes, the agent is told and continues by itself. Create the
+   * channel once (module scope or `useMemo`) in a client component; it holds functions, so it cannot be
+   * passed from a server component.
+   */
+  channel?: AgentChannel
+  /** Follow-up turns the agent may take in a row on finished jobs before waiting for the user. Default 3. */
+  maxJobFollowUps?: number
+}
+
+export interface AgentChannel {
+  /** Start listening and call `finished(jobId)` for each job that finishes. Return a function that stops. */
+  subscribe: (finished: (jobId: string) => void) => () => void
+}
+
+// Must match the dopus server: a job tool's output carries `dopusJob: <id>`, and a finished job is reported
+// back as a `data-dopus-job` part. The part carries only the ID; the server writes the text the model sees.
+const JOB_KEY = 'dopusJob'
+const JOB_PART = 'data-dopus-job'
+
+function startedJob(part: UIMessage['parts'][number]): string | undefined {
+  if (!isToolUIPart(part) || part.state !== 'output-available') return undefined
+  const id = (part.output as Record<string, unknown> | null)?.[JOB_KEY]
+  return typeof id === 'string' ? id : undefined
+}
+
+function isJobNotice(message: UIMessage) {
+  return message.role === 'user' && message.parts.every((part) => part.type === JOB_PART)
 }
 
 type ToolPart = Extract<UIMessage['parts'][number], { toolCallId: string }>
@@ -78,12 +111,21 @@ function ToolCall({
   part,
   labels,
   onRespond,
+  waiting,
 }: {
   part: ToolPart
   labels: AgentChatLabels
   onRespond: (approvalId: string, approved: boolean) => void
+  waiting: boolean
 }) {
   const name = humanize(getToolName(part))
+  if (waiting) {
+    return (
+      <div className="dopus-tool" data-state="running">
+        <span className="dopus-spinner" aria-hidden /> {labels.jobRunning}: {name}
+      </div>
+    )
+  }
 
   switch (part.state) {
     case 'input-streaming':
@@ -187,11 +229,16 @@ function Message({
   message,
   labels,
   onRespond,
+  waitingJobs,
 }: {
   message: UIMessage
   labels: AgentChatLabels
   onRespond: (approvalId: string, approved: boolean) => void
+  waitingJobs: Set<string>
 }) {
+  if (isJobNotice(message)) {
+    return <div className="dopus-notice">✓ {labels.jobDone}</div>
+  }
   return (
     <div className="dopus-message" data-role={message.role}>
       {message.parts.map((part, index) => {
@@ -207,7 +254,16 @@ function Message({
           )
         }
         if (isToolUIPart(part)) {
-          return <ToolCall key={key} part={part} labels={labels} onRespond={onRespond} />
+          const job = startedJob(part)
+          return (
+            <ToolCall
+              key={key}
+              part={part}
+              labels={labels}
+              onRespond={onRespond}
+              waiting={job !== undefined && waitingJobs.has(job)}
+            />
+          )
         }
         return null
       })}
@@ -220,6 +276,8 @@ export function AgentChat({
   labels: labelOverrides,
   suggestions = [],
   className,
+  channel,
+  maxJobFollowUps = 3,
 }: AgentChatProps) {
   const labels = { ...DEFAULT_LABELS, ...labelOverrides }
   const router = useRouter()
@@ -255,6 +313,55 @@ export function AgentChat({
   const [input, setInput] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
   const busy = status === 'submitted' || status === 'streaming'
+
+  // Jobs the channel reported finished. Kept even before this chat shows the job (a job can finish before
+  // its tool output has streamed in); only IDs this chat started are acted on.
+  const [finishedJobs, setFinishedJobs] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    if (!channel) return
+    return channel.subscribe((id) => setFinishedJobs((prev) => new Set(prev).add(id)))
+  }, [channel])
+
+  // Derived from the messages, so a new chat (or another tab) never reacts to jobs it did not start.
+  const { waitingJobs, readyJobs } = useMemo(() => {
+    const started = new Set<string>()
+    const reported = new Set<string>()
+    for (const message of messages) {
+      for (const part of message.parts) {
+        const id = startedJob(part)
+        if (id) started.add(id)
+        if (part.type === JOB_PART) reported.add((part.data as { id: string }).id)
+      }
+    }
+    const waiting = new Set([...started].filter((id) => !reported.has(id)))
+    return { waitingJobs: waiting, readyJobs: [...waiting].filter((id) => finishedJobs.has(id)) }
+  }, [messages, finishedJobs])
+
+  useEffect(() => {
+    if (readyJobs.length === 0 || status !== 'ready') return
+    const last = messages.at(-1)
+    // Wait while an approval card is open: the user answers that first.
+    if (last?.parts.some((part) => isToolUIPart(part) && part.state === 'approval-requested'))
+      return
+    const notice = {
+      role: 'user' as const,
+      parts: readyJobs.map(
+        (id) => ({ type: JOB_PART, data: { id } }) as UIMessage['parts'][number],
+      ),
+    }
+    // Follow-ups since the user last wrote; past the cap, the notice waits in the history for the user's next message.
+    let followUps = 0
+    for (const message of [...messages].reverse()) {
+      if (message.role !== 'user') continue
+      if (!isJobNotice(message)) break
+      followUps++
+    }
+    if (followUps >= maxJobFollowUps) {
+      setMessages([...messages, { id: `job-${readyJobs.join('-')}`, ...notice }])
+    } else {
+      sendMessage(notice)
+    }
+  }, [readyJobs, status, messages, maxJobFollowUps, sendMessage, setMessages])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll whenever messages change
   useEffect(() => {
@@ -322,7 +429,13 @@ export function AgentChat({
           </div>
         )}
         {messages.map((message) => (
-          <Message key={message.id} message={message} labels={labels} onRespond={respond} />
+          <Message
+            key={message.id}
+            message={message}
+            labels={labels}
+            onRespond={respond}
+            waitingJobs={waitingJobs}
+          />
         ))}
         {status === 'submitted' && <div className="dopus-thinking">{labels.thinking}</div>}
         {error && (

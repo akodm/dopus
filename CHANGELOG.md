@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Background jobs: `defineTool(fn, { job: (result) => result.jobId })` marks a tool that starts work elsewhere (a
+  Lambda, a queue) and returns at once. Give the chat UI a `channel` (Supabase Realtime, WebSocket, SSE, polling) and
+  the agent continues by itself when the job finishes: the UI sends back only the job ID, the server writes the notice
+  the model sees, and the agent reads the result with your own tool. Only jobs started in that chat are acted on,
+  automatic follow-ups are capped (`maxJobFollowUps`, default 3), and confirmed tools still need approval.
+- Existing projects: copy `templates/ui/agent-chat.tsx` and `agent-chat.css` to get the `channel` prop.
+
 - Docs: dopus is positioned as a lightweight agent for Next.js. README states what it is for, what is out of scope
   (long-running/background work, autonomous or multi-agent flows, built-in memory/RAG, other frameworks, running the
   agent outside the app) and how to design tools for it (few, fast, small results, batch instead of loop).

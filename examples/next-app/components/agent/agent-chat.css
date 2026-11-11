@@ -142,6 +142,12 @@
   color: var(--dopus-muted);
 }
 
+.dopus-notice {
+  align-self: center;
+  color: var(--dopus-muted);
+  font-size: 0.8125rem;
+}
+
 .dopus-error {
   color: var(--dopus-danger);
 }
