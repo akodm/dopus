@@ -235,6 +235,44 @@ describe('createAgentHandler', () => {
     expect(JSON.stringify(model2.doStreamCalls[1]?.prompt)).toContain('Order o1 is already shipped')
   })
 
+  it('stops calling tools once the time budget (75% of maxDuration) is spent, then answers', async () => {
+    const slowTools = {
+      slow: defineTool(
+        async () => {
+          await new Promise((resolve) => setTimeout(resolve, 200))
+          return 'partial result'
+        },
+        { description: 'Slow', input: z.object({}) },
+      ),
+    }
+    const late = scriptedModel(toolCallStep('slow', {}), textStep('Here is what I have so far.'))
+    const POST = createAgentHandler(defineAgent({ model: late, tools: slowTools, ...silent }), {
+      maxDuration: 0.2, // budget 150 ms; the tool takes 200 ms
+    })
+    const chunks = await readChunks(await POST(chatRequest([userMessage('x')])))
+    expect(late.doStreamCalls[0]?.toolChoice).toEqual({ type: 'auto' })
+    expect(late.doStreamCalls[1]?.toolChoice).toEqual({ type: 'none' })
+    expect(late.doStreamCalls[1]?.tools?.map((t) => t.name)).toEqual(['slow'])
+    expect(JSON.stringify(late.doStreamCalls[1]?.prompt)).toContain(
+      'Time for this request is almost up',
+    )
+    expect(chunks).toContainEqual(
+      expect.objectContaining({ type: 'text-delta', delta: 'Here is what I have so far.' }),
+    )
+
+    // within the budget, and without maxDuration, nothing changes
+    for (const options of [{ maxDuration: 60 }, {}]) {
+      const model = scriptedModel(toolCallStep('slow', {}), textStep('done'))
+      const handler = createAgentHandler(
+        defineAgent({ model, tools: slowTools, ...silent }),
+        options,
+      )
+      await readChunks(await handler(chatRequest([userMessage('x')])))
+      expect(model.doStreamCalls[1]?.toolChoice).toEqual({ type: 'auto' })
+      expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).not.toContain('almost up')
+    }
+  })
+
   it('rejects oversized requests with 413 before calling the model', async () => {
     const model = scriptedModel(textStep('hi'))
     const POST = createAgentHandler(

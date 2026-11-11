@@ -204,9 +204,55 @@ defineAgent({
 })
 ```
 
+## Timeouts and long-running tools
+
+An agent turn can take a while: several model calls plus your tools. Two kinds of limits apply, handled differently.
+
+**Idle timeouts** (CloudFront, ALB, nginx: usually 60 s without a byte). Handled:
+
+- The route streams tokens and tool states as they happen; it never waits for the whole answer.
+- While a slow tool runs, an SSE comment (`: keep-alive`) goes out every 15 s (`keepAlive` option). Clients ignore it.
+- Waiting for an approval holds nothing open. The request ends at the approval card, and the answer starts a new one.
+
+**The platform's total limit** for one request (Vercel `maxDuration`, Lambda timeout, Cloud Run `--timeout`). It cannot be
+streamed around, so dopus stays inside it:
+
+```ts
+// app/api/agent/route.ts (as generated)
+export const maxDuration = 60
+export const POST = createAgentHandler(agent, { maxDuration })
+```
+
+With `maxDuration` passed, once 75% of it has passed the agent starts no more tool calls. It answers with what it has done
+and says what is left, and the user can reply "continue". Without it, a long turn is cut off mid-stream and the chat shows
+an error. A step already running (one model call or one tool) is not interrupted, so keep single tools well under the
+limit. `maxSteps` (default 10) also bounds a turn.
+
+**Tools that take longer than a request.** Exports, bulk updates, report generation and the like should not run inside a
+tool call. Split them into two tools:
+
+```ts
+startExport: defineTool((input) => startExportJob(input), {   // enqueue, return { jobId } at once
+  description: 'Starts a CSV export and returns a job id.',
+  input: z.object({ from: z.string(), to: z.string() }),
+  confirm: true,
+}),
+exportStatus: defineTool((input) => getExportJob(input.jobId), {   // { status, url? }
+  description: 'Returns the status of an export job and its download link when done.',
+  input: z.object({ jobId: z.string() }),
+}),
+```
+
+The job runs in your queue or background worker, outside the request, so it does not have the request's cookies. Check
+permissions in `startExportJob` and pass the user to the job explicitly (see `identify` and `ctx.user`). Have `getExportJob`
+check that the job belongs to the caller.
+
+**If a turn is cut anyway**, tools that already ran stay done. "Retry" asks the model again and may call a tool again.
+Tools behind `confirm: true` need a new approval; make other writes idempotent.
+
 ## Deploying
 
-**Vercel / any Node server.** Nothing extra. The route streams. Raise `maxDuration` in `app/api/agent/route.ts` if your plan allows it.
+**Vercel / any Node server.** Nothing extra. The route streams. Raise `maxDuration` in `app/api/agent/route.ts` if your plan allows it; the time budget follows it.
 
 **AWS (OpenNext / SST).**
 
@@ -221,7 +267,7 @@ SST reads OpenNext's streaming flag and sets the Function URL to `RESPONSE_STREA
 Things to know:
 
 - **Keep-alive.** While a tool runs and nothing else is sent, dopus writes an SSE comment (`: keep-alive`) every 15 s (`keepAlive` option). Clients ignore it. CloudFront, ALB and nginx time out on gaps between packets, not on total time, so a slow tool does not cut the stream.
-- **Turn length.** A turn still has to finish within the Lambda timeout. Behind CloudFront that is 60 s by default (up to 180 s with a quota increase). A bare Function URL allows up to 15 min.
+- **Turn length.** A turn still has to finish within the Lambda timeout. Behind CloudFront that is 60 s by default (up to 180 s with a quota increase). A bare Function URL allows up to 15 min. Keep the route's `maxDuration` equal to the Lambda timeout so the time budget matches.
 - **No API Gateway.** Don't put API Gateway HTTP APIs in front of `/api/agent`. They cap requests at 30 s and buffer the response.
 - **Long-running work.** Work that outlives a request, such as queues and background jobs, loses the request's cookies. Use `identify` and pass `ctx.user` on explicitly.
 

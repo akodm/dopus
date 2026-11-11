@@ -4,6 +4,7 @@ import {
   isStepCount,
   type LanguageModel,
   type SingleToolApprovalFunction,
+  type SystemModelMessage,
   safeValidateUIMessages,
   streamText,
   type Tool,
@@ -211,16 +212,32 @@ function errorResponse(status: number, message: string) {
   return new Response(JSON.stringify({ error: message }), { status, headers: JSON_HEADERS })
 }
 
+export interface HandlerOptions {
+  /**
+   * The route's `maxDuration` in seconds (pass the exported constant). Once 75% of it has passed, the agent
+   * starts no further tool calls and answers with what it has, instead of being cut off by the platform.
+   */
+  maxDuration?: number
+}
+
+/** Share of `maxDuration` after which no new tool calls start; the rest is left for the final answer. */
+export const TIME_BUDGET_SHARE = 0.75
+
+const TIME_UP = `Time for this request is almost up. Do not call any more tools. Answer now with what you have done and found so far. If work remains, say what is left so the user can ask you to continue.`
+
 /**
  * Creates a `POST` route handler that speaks the AI SDK UI message stream protocol (`useChat`).
  *
  * Tools execute inside this request, so server functions they call see the caller's cookies.
  */
-export function createAgentHandler(config: AgentConfig) {
+export function createAgentHandler(config: AgentConfig, options: HandlerOptions = {}) {
   const maxSteps = config.maxSteps ?? 10
   const report = config.onError ?? ((error: unknown) => console.error('[dopus]', error))
 
   return async function handleAgentRequest(request: Request): Promise<Response> {
+    const deadline = options.maxDuration
+      ? Date.now() + options.maxDuration * 1000 * TIME_BUDGET_SHARE
+      : undefined
     const maxBodyBytes = config.limits?.maxBodyBytes ?? 1_000_000
     const maxMessageChars = config.limits?.maxMessageChars ?? 8_000
     if (Number(request.headers.get('content-length') ?? 0) > maxBodyBytes) {
@@ -266,6 +283,19 @@ export function createAgentHandler(config: AgentConfig) {
       tools,
       toolApproval,
       stopWhen: isStepCount(maxSteps),
+      // Near the time budget: no more tools (tool definitions stay, since the history may contain tool calls),
+      // and an instruction to answer with what is known.
+      prepareStep: ({ stepNumber, instructions }) => {
+        if (deadline === undefined || stepNumber === 0 || Date.now() < deadline) return {}
+        const current = instructions === undefined ? [] : [instructions].flat()
+        const base: SystemModelMessage[] = current
+          .map((m) => (typeof m === 'string' ? { role: 'system' as const, content: m } : m))
+          .filter((m) => m.content !== TIME_UP)
+        return {
+          toolChoice: 'none' as const,
+          instructions: [...base, { role: 'system' as const, content: TIME_UP }],
+        }
+      },
       abortSignal: request.signal,
       ...(approvalSecret ? { experimental_toolApprovalSecret: approvalSecret } : {}),
       onError: ({ error }) => report(error),

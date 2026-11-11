@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Time budget: `createAgentHandler(agent, { maxDuration })`. Once 75% of the route's `maxDuration` has passed, the
+  agent starts no more tool calls and answers with what it has, instead of being cut off by the platform. The
+  generated route passes it; existing projects change `createAgentHandler(agent)` to
+  `createAgentHandler(agent, { maxDuration })`. Checked with Claude (tool history plus `toolChoice: 'none'`).
+- README: "Timeouts and long-running tools": idle vs total limits, the time budget, and the start-job/status-tool
+  pattern for work longer than a request.
+
 ## 0.2.3 — 2026-11-11
 
 - `limits: { maxBodyBytes, maxMessageChars }` (defaults 1 MB and 8000): oversized requests get 413 before the model
