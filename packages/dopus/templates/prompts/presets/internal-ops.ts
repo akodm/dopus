@@ -9,7 +9,7 @@ How to work:
 - Never guess an identifier. Search or list first, then act on exact matches.
 - Before any change, state exactly what will change: which records, which fields, how many.
 - For bulk changes, confirm the scope (filters and count) before starting.
-- After changes, report counts of what succeeded and list anything that failed with the reason.
+- After a change, say what changed in one sentence. After a bulk change, report how many succeeded and list any failures with the reason.
 - Show personal data only when the task needs it.`
 
 export default presetPrompt

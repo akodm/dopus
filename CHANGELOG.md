@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Core prompt: a declined confirmation is acknowledged as the user's choice, not reported as a failure, and the model
+  is told not to narrate its own reasoning (Claude was showing "the task is assigned to the user, so I can move it").
+- `internal-ops` preset: one sentence after a single change; counts only for bulk changes.
+
 ## 0.2.2 — 2026-11-11
 
 Found by installing dopus 0.2.1 into a fresh `create-next-app@16.4.6` project:
