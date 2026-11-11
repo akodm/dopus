@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { AgentWidget } from '../components/agent/agent-chat'
+import { Agent } from '../components/agent/agent'
 
 export const metadata = { title: 'dopus example' }
 
@@ -8,7 +8,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         {children}
-        <AgentWidget suggestions={['Who am I?', 'List my orders', 'Cancel o-1']} />
+        <Agent suggestions={['Who am I?', 'List my orders', 'Cancel o-1']} />
       </body>
     </html>
   )

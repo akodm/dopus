@@ -3,6 +3,7 @@ import { defineAgent, defineTool } from 'dopus'
 import { z } from 'zod'
 import app, { locales } from './agent/prompts/app'
 import preset from './agent/prompts/preset'
+import { getExport, startExport } from './app/actions/exports'
 import { cancelOrder, getCurrentUser, listMyOrders } from './app/actions/orders'
 import { mockModel } from './lib/mock-model'
 
@@ -29,6 +30,18 @@ export default defineAgent({
       usage: 'Only when the user explicitly asks to cancel a specific order.',
       input: z.object({ orderId: z.string().describe('Order id, e.g. "o-1"') }),
       confirm: true,
+    }),
+    // Background job: returns at once; the chat hears when it finishes (components/agent/agent.tsx).
+    startExport: defineTool(() => startExport(), {
+      description: "Starts exporting the user's orders to a CSV file.",
+      usage: 'When the user asks for an export of their orders.',
+      input: z.object({}),
+      job: (result) => result.jobId,
+    }),
+    getExport: defineTool((input) => getExport(input.jobId), {
+      description: 'Reads an export job: its status and, when done, the file.',
+      usage: 'After the app says an export job has finished.',
+      input: z.object({ jobId: z.string() }),
     }),
   },
   prompt: { preset, app, locales },

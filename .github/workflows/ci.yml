@@ -33,6 +33,17 @@ jobs:
       - run: pnpm example:build
       # Starts `next start` with a scripted model: tools must see the caller's cookies.
       - run: pnpm example:e2e
+      # The copied chat UI in a real browser (Playwright, scripted model): approvals, stale cards, background jobs.
+      - if: matrix.node == 24
+        run: pnpm --filter next-app exec playwright install --with-deps --only-shell chromium
+      - if: matrix.node == 24
+        run: pnpm example:ui
+      - if: failure() && matrix.node == 24
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-traces
+          path: examples/next-app/test-results/
+          retention-days: 7
 
   pack-smoke:
     runs-on: ubuntu-latest

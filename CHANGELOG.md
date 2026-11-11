@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Tests: browser tests of the copied chat UI (Playwright, scripted model) run in CI and before every release:
+  approve, decline, approve all, cards left open while the user writes (including one approved, the 0.2.8 bug),
+  background job follow-up, the unread dot, the over-long message. The example app gained a background export job
+  with an SSE channel.
+- Example app: its in-memory store lives on `globalThis`. A production build loaded the module separately for the
+  pages and the agent route, so the page did not show changes the agent made (the browser tests found this; apps
+  with a database are not affected).
+
 ## 0.2.8 — 2026-11-11
 
 - Fix: typing a new message while approval cards were open broke the chat. The model lost its own proposal and

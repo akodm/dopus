@@ -521,6 +521,7 @@ Planned next, within the lightweight scope above:
 pnpm install
 pnpm build && pnpm lint && pnpm typecheck && pnpm test
 pnpm example:build && pnpm example:e2e   # next start + scripted model
+pnpm example:ui                          # the chat UI in Chromium (Playwright): approvals, jobs, limits
 pnpm example:live                        # real model from examples/next-app/.env.local (costs cents)
 pnpm smoke                               # packed tarball → fresh app → init (older release) → update → next build
 pnpm templates:history                   # after changing a template: record its hash for `dopus update`

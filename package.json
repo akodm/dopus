@@ -14,6 +14,7 @@
     "test": "pnpm -r --filter ./packages/* test",
     "example:build": "pnpm --filter next-app build",
     "example:e2e": "pnpm --filter next-app test:e2e",
+    "example:ui": "pnpm --filter next-app test:ui",
     "smoke": "node scripts/pack-smoke.mjs",
     "aws:emu": "node scripts/lambda-emu.mjs",
     "cf:e2e": "node scripts/cloudflare-e2e.mjs",

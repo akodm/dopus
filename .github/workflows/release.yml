@@ -46,6 +46,8 @@ jobs:
       - run: pnpm test
       - run: pnpm example:build
       - run: pnpm example:e2e
+      - run: pnpm --filter next-app exec playwright install --with-deps --only-shell chromium
+      - run: pnpm example:ui
       - run: pnpm smoke
 
       # Staged publishing needs npm >= 11.15.0.

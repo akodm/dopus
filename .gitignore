@@ -10,3 +10,5 @@ coverage/
 .env.*.local
 packages/dopus/README.md
 .open-next/
+test-results/
+playwright-report/

@@ -23,20 +23,26 @@ const text = (value: string) =>
     { type: 'finish', finishReason: { unified: 'stop', raw: undefined }, usage },
   ])
 
-const call = (toolName: string, input: object) =>
+/** One step with one or more tool calls. */
+const calls = (toolName: string, inputs: object[]) =>
   reply([
-    {
-      type: 'tool-call',
-      toolCallId: `call-${Math.random().toString(36).slice(2)}`,
-      toolName,
-      input: JSON.stringify(input),
-    },
+    ...inputs.map(
+      (input) =>
+        ({
+          type: 'tool-call',
+          toolCallId: `call-${Math.random().toString(36).slice(2)}`,
+          toolName,
+          input: JSON.stringify(input),
+        }) as const,
+    ),
     { type: 'finish', finishReason: { unified: 'tool-calls', raw: undefined }, usage },
   ])
+const call = (toolName: string, input: object) => calls(toolName, [input])
 
 /**
  * Scripted stand-in for an LLM, used by the e2e tests (DOPUS_MOCK_MODEL=1).
- * "who" → getCurrentUser, "orders" → listMyOrders, "cancel <id>" → cancelOrder.
+ * "who" → getCurrentUser, "orders" → listMyOrders, "cancel <id> [<id>...]" → cancelOrder (one call per id,
+ * in one step), "export" → startExport, the app's finished-job notice → getExport.
  * After a tool result it replies with `result: <json>` so tests can read what the tool returned.
  */
 export function mockModel() {
@@ -51,8 +57,16 @@ export function mockModel() {
         last?.role === 'user'
           ? last.content.map((part) => (part.type === 'text' ? part.text : '')).join(' ')
           : ''
-      const cancel = /cancel\s+(\S+)/i.exec(userText)
-      if (cancel?.[1]) return call('cancelOrder', { orderId: cancel[1] })
+      const finished = /Background job (\S+) has finished/.exec(userText)
+      if (finished?.[1]) return call('getExport', { jobId: finished[1] })
+      const cancel = /cancel\s+(.+)/i.exec(userText)
+      const ids = cancel?.[1]?.match(/\S+/g) ?? []
+      if (ids.length > 0)
+        return calls(
+          'cancelOrder',
+          ids.map((orderId) => ({ orderId })),
+        )
+      if (/export/i.test(userText)) return call('startExport', {})
       if (/orders/i.test(userText)) return call('listMyOrders', {})
       if (/who/i.test(userText)) return call('getCurrentUser', {})
       return text('Try "who am I", "list my orders" or "cancel o-1".')
