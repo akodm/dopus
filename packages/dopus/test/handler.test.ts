@@ -2,6 +2,7 @@ import type { UIMessage } from 'ai'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import {
+  type AgentConfig,
   createAgentHandler,
   defineAgent,
   defineTool,
@@ -302,7 +303,7 @@ describe('createAgentHandler', () => {
 })
 
 describe('confirm flow', () => {
-  function setup(options: { approvalSecret?: string } = {}) {
+  function setup(options: Partial<Pick<AgentConfig, 'approvalSecret' | 'onToolCall'>> = {}) {
     const cancelOrder = vi.fn(async (input: { orderId: string }) => ({ cancelled: input.orderId }))
     const model = scriptedModel(
       toolCallStep('cancelOrder', { orderId: 'o1' }),
@@ -341,6 +342,33 @@ describe('confirm flow', () => {
     part.approval = { ...part.approval, approved }
     return assistant
   }
+
+  it('reports approved runs and declined calls to onToolCall', async () => {
+    const onToolCall = vi.fn()
+    const approved = setup({ onToolCall })
+    const a = await requestApproval(approved.POST)
+    expect(onToolCall).not.toHaveBeenCalled()
+    await readChunks(await approved.POST(chatRequest([a.first, respond(a.assistant, true)])))
+    expect(onToolCall).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool: 'cancelOrder',
+        input: { orderId: 'o1' },
+        outcome: 'success',
+        output: { cancelled: 'o1' },
+        durationMs: expect.any(Number),
+      }),
+    )
+
+    onToolCall.mockClear()
+    const declined = setup({ onToolCall })
+    const d = await requestApproval(declined.POST)
+    await readChunks(await declined.POST(chatRequest([d.first, respond(d.assistant, false)])))
+    expect(declined.cancelOrder).not.toHaveBeenCalled()
+    expect(onToolCall).toHaveBeenCalledTimes(1)
+    expect(onToolCall).toHaveBeenCalledWith(
+      expect.objectContaining({ tool: 'cancelOrder', input: { orderId: 'o1' }, outcome: 'denied' }),
+    )
+  })
 
   it('asks for approval instead of running the tool', async () => {
     const { POST, cancelOrder } = setup()
@@ -408,5 +436,103 @@ describe('confirm flow', () => {
 
     await readChunks(await signed.POST(chatRequest([first, respond(assistant, true)])))
     expect(signed.cancelOrder).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('hooks', () => {
+  const tools = {
+    whoami: defineTool(async () => ({ name: 'Kim' }), {
+      description: 'Who',
+      input: z.object({}),
+    }),
+    broken: defineTool(
+      async () => {
+        throw new Error('db down at 10.0.0.5')
+      },
+      { description: 'Broken', input: z.object({}) },
+    ),
+  }
+
+  it('beforeRequest can answer instead of the model (e.g. 429)', async () => {
+    const model = scriptedModel(textStep('hi'))
+    const beforeRequest = vi.fn(({ user }: { user?: { id: string } }) =>
+      user?.id === 'spammer' ? new Response('slow down', { status: 429 }) : undefined,
+    )
+    const POST = createAgentHandler(
+      defineAgent({
+        model,
+        tools: {},
+        identify: (request) => ({ id: request.headers.get('cookie') ?? 'anon' }),
+        beforeRequest,
+        ...silent,
+      }),
+    )
+    const blocked = await POST(chatRequest([userMessage('x')], { cookie: 'spammer' }))
+    expect(blocked.status).toBe(429)
+    expect(model.doStreamCalls).toHaveLength(0)
+    expect((await POST(chatRequest([userMessage('x')], { cookie: 'alice' }))).status).toBe(200)
+    expect(beforeRequest).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        user: { id: 'alice' },
+        messages: [expect.objectContaining({ role: 'user' })],
+      }),
+    )
+  })
+
+  it('onToolCall gets the raw error server-side; the model still sees the safe message', async () => {
+    const onToolCall = vi.fn()
+    const model = scriptedModel(toolCallStep('broken', {}), textStep('sorry'))
+    const POST = createAgentHandler(defineAgent({ model, tools, onToolCall, ...silent }))
+    await readChunks(await POST(chatRequest([userMessage('x')])))
+    expect(onToolCall).toHaveBeenCalledWith(
+      expect.objectContaining({ tool: 'broken', outcome: 'error', error: 'db down at 10.0.0.5' }),
+    )
+    expect(JSON.stringify(model.doStreamCalls[1]?.prompt)).not.toContain('10.0.0.5')
+  })
+
+  it('onFinish reports usage summed over steps, with the user and model', async () => {
+    const onFinish = vi.fn()
+    const POST = createAgentHandler(
+      defineAgent({
+        model: scriptedModel(toolCallStep('whoami', {}), textStep('Kim')),
+        tools,
+        identify: () => ({ id: 'u-1' }),
+        onFinish,
+        ...silent,
+      }),
+    )
+    await readChunks(await POST(chatRequest([userMessage('x')])))
+    expect(onFinish).toHaveBeenCalledTimes(1)
+    expect(onFinish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        user: { id: 'u-1' },
+        model: expect.objectContaining({ modelId: expect.any(String) }),
+        usage: expect.objectContaining({ inputTokens: 20, outputTokens: 10, totalTokens: 30 }),
+        steps: 2,
+        finishReason: 'stop',
+        durationMs: expect.any(Number),
+      }),
+    )
+  })
+
+  it('a throwing hook is reported and does not break the reply', async () => {
+    const onError = vi.fn()
+    const POST = createAgentHandler(
+      defineAgent({
+        model: scriptedModel(toolCallStep('whoami', {}), textStep('Kim')),
+        tools,
+        onToolCall: () => {
+          throw new Error('audit db down')
+        },
+        onFinish: async () => {
+          throw new Error('usage db down')
+        },
+        onError,
+      }),
+    )
+    const chunks = await readChunks(await POST(chatRequest([userMessage('x')])))
+    expect(chunks).toContainEqual(expect.objectContaining({ type: 'text-delta', delta: 'Kim' }))
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'audit db down' }))
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'usage db down' }))
   })
 })

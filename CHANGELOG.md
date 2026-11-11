@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Hooks: `beforeRequest` (return a `Response`, e.g. 429, to stop before the model runs), `onToolCall` (every tool call
+  with outcome `success` / `error` / `denied`, input, output or original error, duration) and `onFinish` (token usage
+  summed over the request's steps, model, steps, duration). Hook errors go to `onError` and never break the chat.
 - Chat UI: assistant replies render as Markdown (`react-markdown` + `remark-gfm`, installed by `init`). Raw HTML is
   never rendered, images show only alt text, links keep only http(s), mailto and relative URLs. Claude's tables and
   bold text showed as raw `|` and `**` before.

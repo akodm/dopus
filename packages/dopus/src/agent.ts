@@ -1,7 +1,9 @@
 import {
   convertToModelMessages,
   createUIMessageStreamResponse,
+  getToolName,
   isStepCount,
+  isToolUIPart,
   type LanguageModel,
   type SingleToolApprovalFunction,
   type SystemModelMessage,
@@ -37,6 +39,19 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
    * needed when tools run outside the request. Return `undefined` for anonymous users.
    */
   identify?: (request: Request) => AgentUser | undefined | Promise<AgentUser | undefined>
+  /**
+   * Runs before the model is called, after the body is validated. Return a `Response` (e.g. a 429 from your rate
+   * limiter) to answer with it instead; return nothing to continue.
+   */
+  beforeRequest?: (ctx: {
+    request: Request
+    user: AgentUser | undefined
+    messages: UIMessage[]
+  }) => Response | undefined | Promise<Response | undefined>
+  /** Called once per tool call: ran (`success` / `error`) or declined by the user (`denied`). For audit logs. */
+  onToolCall?: (event: ToolCallEvent) => void | Promise<void>
+  /** Called once per request when the reply is finished: tokens, steps, model. For usage tracking. */
+  onFinish?: (event: FinishEvent) => void | Promise<void>
   /** Maximum model steps (tool round trips) per request. Default 10. */
   maxSteps?: number
   /**
@@ -68,6 +83,36 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
    * (CloudFront, ALB, nginx) do not drop the connection. Clients ignore comments. Default 15000; `false` disables.
    */
   keepAlive?: number | false
+}
+
+export interface ToolCallEvent {
+  tool: string
+  toolCallId: string
+  input: unknown
+  /** From `identify`; `undefined` if you did not define it. */
+  user: AgentUser | undefined
+  outcome: 'success' | 'error' | 'denied'
+  /** The tool's return value (`success`). */
+  output?: unknown
+  /** The original error message (`error`). Server-side only: the model and the browser see a safe message. */
+  error?: string
+  /** Execution time (`success` / `error`). */
+  durationMs?: number
+}
+
+export interface FinishEvent {
+  user: AgentUser | undefined
+  model: { provider: string; modelId: string }
+  /** Summed over all steps of this request. */
+  usage: {
+    inputTokens: number | undefined
+    outputTokens: number | undefined
+    totalTokens: number | undefined
+    cachedInputTokens: number | undefined
+  }
+  steps: number
+  finishReason: string
+  durationMs: number
 }
 
 const KEEP_ALIVE = new TextEncoder().encode(': keep-alive\n\n')
@@ -140,6 +185,21 @@ export function defineAgent<TOOLS extends DopusToolSet>(
 interface BuildContext {
   user: AgentUser | undefined
   report?: (error: unknown) => void
+  onToolCall?: (event: ToolCallEvent) => void | Promise<void>
+}
+
+/** Runs a user hook; a failing hook is reported but never breaks the chat. */
+async function runHook<E>(
+  hook: ((event: E) => void | Promise<void>) | undefined,
+  event: E,
+  report?: (error: unknown) => void,
+) {
+  if (!hook) return
+  try {
+    await hook(event)
+  } catch (error) {
+    report?.(error)
+  }
 }
 
 export function buildTools(tools: DopusToolSet, ctx: BuildContext) {
@@ -155,10 +215,28 @@ export function buildTools(tools: DopusToolSet, ctx: BuildContext) {
       description: toolDescription(options),
       inputSchema: options.input,
       execute: async (input: unknown, { toolCallId, abortSignal }) => {
+        const started = Date.now()
+        const base = { tool: name, toolCallId, input, user: ctx.user }
         try {
           const result = await fn(input, { user: ctx.user, toolCallId, abortSignal })
-          return options.output ? options.output(result) : result
+          const output = options.output ? options.output(result) : result
+          await runHook(
+            ctx.onToolCall,
+            { ...base, outcome: 'success', output, durationMs: Date.now() - started },
+            ctx.report,
+          )
+          return output
         } catch (error) {
+          await runHook(
+            ctx.onToolCall,
+            {
+              ...base,
+              outcome: 'error',
+              error: error instanceof Error ? error.message : String(error),
+              durationMs: Date.now() - started,
+            },
+            ctx.report,
+          )
           const translated = translateNextError(error)
           if (translated instanceof ToolError) throw translated
           ctx.report?.(error)
@@ -235,6 +313,7 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
   const report = config.onError ?? ((error: unknown) => console.error('[dopus]', error))
 
   return async function handleAgentRequest(request: Request): Promise<Response> {
+    const started = Date.now()
     const deadline = options.maxDuration
       ? Date.now() + options.maxDuration * 1000 * TIME_BUDGET_SHARE
       : undefined
@@ -255,7 +334,11 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
     }
 
     const user = await config.identify?.(request)
-    const { tools, toolApproval } = buildTools(config.tools, { user, report })
+    const { tools, toolApproval } = buildTools(config.tools, {
+      user,
+      report,
+      onToolCall: config.onToolCall,
+    })
 
     const validated = await safeValidateUIMessages<UIMessage>({
       messages: (body as { messages?: unknown } | null)?.messages,
@@ -270,6 +353,28 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
         message.parts.some((part) => part.type === 'text' && part.text.length > maxMessageChars),
     )
     if (tooLong) return errorResponse(413, 'Message is too long')
+
+    const early = await config.beforeRequest?.({ request, user, messages })
+    if (early instanceof Response) return early
+
+    // Approvals the user declined arrive with this request; the tool never runs, so log them here.
+    for (const part of messages.at(-1)?.role === 'assistant'
+      ? (messages.at(-1)?.parts ?? [])
+      : []) {
+      if (!isToolUIPart(part) || part.state !== 'approval-responded' || part.approval.approved)
+        continue
+      await runHook(
+        config.onToolCall,
+        {
+          tool: getToolName(part),
+          toolCallId: part.toolCallId,
+          input: part.input,
+          user,
+          outcome: 'denied',
+        },
+        report,
+      )
+    }
 
     const client = readClientContext(body, request)
     const runtime = { ...client, ...(await config.runtime?.(request, { user, client })) }
@@ -299,6 +404,26 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
       abortSignal: request.signal,
       ...(approvalSecret ? { experimental_toolApprovalSecret: approvalSecret } : {}),
       onError: ({ error }) => report(error),
+      onEnd: async (event) => {
+        await config.callOptions?.onEnd?.(event)
+        await runHook(
+          config.onFinish,
+          {
+            user,
+            model: { provider: event.model.provider, modelId: event.model.modelId },
+            usage: {
+              inputTokens: event.totalUsage.inputTokens,
+              outputTokens: event.totalUsage.outputTokens,
+              totalTokens: event.totalUsage.totalTokens,
+              cachedInputTokens: event.totalUsage.inputTokenDetails?.cacheReadTokens,
+            },
+            steps: event.stepNumber + 1,
+            finishReason: event.finishReason,
+            durationMs: Date.now() - started,
+          },
+          report,
+        )
+      },
     })
 
     const response = createUIMessageStreamResponse({

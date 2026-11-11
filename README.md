@@ -190,6 +190,9 @@ defineAgent({
   identify: async (request) => ({ id: 'user-1' }), // optional
   maxSteps: 10, // model ↔ tool round trips per request
   limits: { maxBodyBytes: 1_000_000, maxMessageChars: 8_000 }, // over → 413
+  beforeRequest,
+  onToolCall,
+  onFinish, // see "Audit log, usage and rate limits"
   approvalSecret, // default: process.env.DOPUS_APPROVAL_SECRET
   callOptions: {
     temperature,
@@ -203,6 +206,44 @@ defineAgent({
   onError: (error) => {}, // default: console.error
 })
 ```
+
+## Audit log, usage and rate limits
+
+Three optional hooks in `defineAgent`. `user` in each comes from `identify`, so define it if you need to know who asked.
+
+```ts
+defineAgent({
+  // ...
+  identify: async () => {
+    const session = await getSession()
+    return session ? { id: session.userId } : undefined
+  },
+
+  // Before the model is called. Return a Response to answer with it instead.
+  beforeRequest: async ({ user, request, messages }) => {
+    const { success } = await ratelimit.limit(user?.id ?? ip(request))
+    if (!success) return Response.json({ error: 'Too many requests' }, { status: 429 })
+  },
+
+  // Every tool call: outcome 'success' | 'error' | 'denied' (the user declined the approval).
+  onToolCall: async ({ user, tool, input, outcome, output, error, durationMs }) => {
+    await db.auditLog.insert({ userId: user?.id, tool, input, outcome, error, durationMs })
+  },
+
+  // Once per request, when the reply is done: tokens summed over all steps.
+  onFinish: async ({ user, model, usage, steps, finishReason, durationMs }) => {
+    await db.usage.insert({ userId: user?.id, model: model.modelId, ...usage })
+  },
+})
+```
+
+- `onToolCall` gets the tool's original error message. It stays on the server; the model and the browser get the safe
+  message described under [Errors](#errors).
+- A hook that throws goes to `onError` and does not break the chat. Hooks are awaited, so a slow log write delays the
+  reply; queue the write if that matters.
+- `usage.cachedInputTokens` shows prompt caching at work. In the demo task board with Claude, about 90% of input tokens
+  were cache reads.
+- The chat UI shows a generic error for a 429. Pass your own `labels.error` if you want different wording.
 
 ## Timeouts and long-running tools
 

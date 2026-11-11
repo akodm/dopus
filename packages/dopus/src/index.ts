@@ -3,7 +3,9 @@ export {
   type ClientContext,
   createAgentHandler,
   defineAgent,
+  type FinishEvent,
   type HandlerOptions,
+  type ToolCallEvent,
 } from './agent.js'
 export { ToolError } from './next-errors.js'
 export {
