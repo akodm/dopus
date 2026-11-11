@@ -1,6 +1,7 @@
 # dopus
 
-Drop an AI agent into your existing Next.js app. Your server functions become its tools.
+A lightweight agent for Next.js. Hand it the server functions your app already has, and it does the user's tasks with
+them, with the user's own permissions.
 
 ```bash
 pnpm add dopus
@@ -13,6 +14,20 @@ pnpm dopus init
 - **You own the generated code.** `init` copies the route, prompts and chat UI into your project, shadcn-style. Only the runtime lives in the package.
 
 Built on the [Vercel AI SDK](https://ai-sdk.dev) 7. Supports OpenAI, Anthropic and Google models.
+
+**What it is for.** An assistant inside your app that answers questions about the user's data and makes small changes
+on request: "show my open orders", "move this task to done", "assign the deploy checklist to Carol". Each turn is a few
+quick server-function calls inside one request, usually a few seconds.
+
+**What it is not.** dopus stays small on purpose. These are out of scope:
+
+- Long-running or background work. A tool should finish in seconds. Hand longer jobs to your own queue with a
+  start-job tool and a status tool (see [Timeouts and long-running tools](#timeouts-and-long-running-tools)).
+- Autonomous, scheduled or multi-agent workflows.
+- Built-in memory, RAG or a vector store. If you need search over documents, expose it as a tool.
+- Frameworks other than Next.js, and the Pages Router.
+- Running the agent somewhere other than your Next.js app. `dopus infra` only writes the deploy config that keeps the
+  agent route streaming on AWS, Cloudflare or Cloud Run.
 
 ---
 
@@ -108,6 +123,20 @@ export default defineAgent({
 
 `ctx` is `{ user, toolCallId, abortSignal }`. `user` is only set when you configure `identify` (see below).
 
+### Designing tools
+
+A lightweight agent works best with small, fast tools:
+
+- **Few.** Register the tools a user needs here, not every function you have. Past roughly 20 to 30 tools, models pick
+  the wrong one more often, and every request carries every description.
+- **Fast.** A tool should return in a second or two. Longer work belongs in a job (see
+  [Timeouts and long-running tools](#timeouts-and-long-running-tools)).
+- **Small results.** Take filters and a limit, and return only the fields the agent needs (`output` helps). A thousand
+  rows cost tokens on every later step, and the whole history counts against `limits.maxBodyBytes`.
+- **Batch, don't loop.** "Close all 200 stale tickets" should be one server function that takes a filter, not 200 calls.
+  A turn allows at most `maxSteps` (10) model ↔ tool round trips.
+- **Clear names and descriptions.** The model chooses by them. Say when _not_ to use a tool in `usage`.
+
 ### Errors
 
 Only two kinds of error message reach the model:
@@ -151,7 +180,7 @@ Your part, so an injected instruction cannot cause damage:
 
 We tested this with a real model in a small task-board app. A member wrote a task whose title ordered the assistant to delete other tasks, then an admin's assistant listed the tasks. Claude (claude-sonnet-5-5) did not even request the deletion and pointed out the planted text. If a model did request it, the approval card would still stop it. Other models were not tested this way.
 
-**Running tools outside the request.** Background jobs and queues lose the request's cookies. For that case, define `identify(request)` to resolve a serialisable user. Tools then receive it as `ctx.user` and can pass it on explicitly. Infra adapters that run tools elsewhere will build on this.
+**Running tools outside the request.** Background jobs and queues lose the request's cookies. For that case, define `identify(request)` to resolve a serialisable user. Tools then receive it as `ctx.user` and can pass it on explicitly. dopus itself always runs tools inside the request; this is for jobs your tools hand off.
 
 ## Prompts
 
@@ -293,6 +322,9 @@ Tools behind `confirm: true` need a new approval; make other writes idempotent.
 
 ## Deploying
 
+The `dopus infra` commands write the deploy configuration that keeps the agent route streaming within each platform's
+limits. The agent still runs inside your Next.js app; nothing is moved elsewhere.
+
 **Vercel / any Node server.** Nothing extra. The route streams. Raise `maxDuration` in `app/api/agent/route.ts` if your plan allows it; the time budget follows it.
 
 **AWS (OpenNext / SST).**
@@ -370,9 +402,9 @@ Swap in a scripted `MockLanguageModelV4` from `ai/test` behind an environment va
 
 dopus is pre-1.0, so expect breaking changes before 1.0. It is tested on Next.js 16 with the Node.js runtime.
 
-Planned next:
+Planned next, within the lightweight scope above:
 
-- `dopus prompts diff` to compare your copies with newer templates;
+- a command that updates your copies of the chat UI and route when the templates change;
 - tool input schemas inferred from TypeScript types.
 
 ## Development

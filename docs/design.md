@@ -2,8 +2,14 @@
 
 ## Goal
 
-`pnpm add dopus && pnpm dopus init` adds a working agent to an existing Next.js App Router app.
-Existing `'use server'` functions are registered as tools with `defineTool(fn, { description, usage, input, confirm })`.
+A lightweight agent for Next.js. `pnpm add dopus && pnpm dopus init` adds a working agent to an existing App Router app.
+Existing `'use server'` functions are registered as tools with `defineTool(fn, { description, usage, input, confirm })`
+and run inside the agent's request with the caller's permissions.
+
+Scope (decided 2026-11-11): short tool calls inside one request — answers about the user's data and small changes.
+Out of scope: long-running or background work (handed to the app's queue via start-job + status tools), autonomous or
+multi-agent workflows, built-in memory/RAG, non-Next frameworks and the Pages Router, and running the agent outside the
+Next.js app. `dopus infra` writes deploy config only. New features are judged against this scope.
 
 ## Package shape
 
@@ -86,10 +92,9 @@ cached prefix.
 ## Auth inheritance
 
 Tools run in the route handler's request, so `cookies()` / `headers()` inside a server function see the caller's session.
-This is the default and the main differentiator. When execution moves off-request (queues, background infra adapters),
-the request context is gone: adapters must receive an explicit, serialisable user identity (`runtimeContext.user`) and
-tools that need auth must accept it.
-Verified in M1 on a `next start` (16.4.6) server: a tool executed mid-stream reads the caller's cookie via `cookies()`. That interface is designed in M1 even though adapters land in M6+.
+This is the default and the main differentiator. dopus never moves tool execution off-request. When a tool hands work to
+the app's own queue, the request context is gone there: `identify` gives tools `ctx.user` to pass on explicitly.
+Verified in M1 on a `next start` (16.4.6) server: a tool executed mid-stream reads the caller's cookie via `cookies()`.
 
 ## Prompt layers (stable → volatile, for provider prompt caching)
 
@@ -101,6 +106,8 @@ Verified in M1 on a `next start` (16.4.6) server: a tool executed mid-stream rea
 ## Milestones
 
 M0 repo/CI · M1 runtime · M2 `init` CLI · M3 prompts + chat UI · M4 example + cookie test · M5 docs + 0.1.0 · M6+ AWS → Cloudflare → GCP adapters.
+The M6 adapters ended up as deploy-config generators (streaming, timeouts, secrets); the earlier idea of adapters that run
+tools elsewhere was dropped when the scope was fixed as a lightweight agent (2026-11-11).
 
 ## AWS (M6)
 

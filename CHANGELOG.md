@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Docs: dopus is positioned as a lightweight agent for Next.js. README states what it is for, what is out of scope
+  (long-running/background work, autonomous or multi-agent flows, built-in memory/RAG, other frameworks, running the
+  agent outside the app) and how to design tools for it (few, fast, small results, batch instead of loop).
+- Package description updated to match.
+
 ## 0.2.5 — 2026-11-11
 
 - Hooks: `beforeRequest` (return a `Response`, e.g. 429, to stop before the model runs), `onToolCall` (every tool call
