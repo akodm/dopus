@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.10 — 2026-11-11
 
 - `onFinish` also gives `conversationId` (the id of the conversation's first message: stable across reloads with
   `history`, new after "New chat") and `newMessages` (what this request added: the user's message and the reply;

@@ -1,6 +1,6 @@
 {
   "name": "dopus",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "description": "A lightweight agent for Next.js: your existing server functions become its tools, run with the signed-in user's permissions.",
   "license": "MIT",
   "author": "akodm",
