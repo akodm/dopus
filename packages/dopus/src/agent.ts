@@ -39,6 +39,12 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
   /** Maximum model steps (tool round trips) per request. Default 10. */
   maxSteps?: number
   /**
+   * Size limits checked before the model is called; a request over them gets 413.
+   * `maxBodyBytes` (default 1 MB) bounds the whole chat history the browser sends;
+   * `maxMessageChars` (default 8000) bounds the text of each user message.
+   */
+  limits?: { maxBodyBytes?: number; maxMessageChars?: number }
+  /**
    * Secret used to sign approval requests so a client cannot forge an approval.
    * Defaults to `process.env.DOPUS_APPROVAL_SECRET`.
    */
@@ -215,9 +221,18 @@ export function createAgentHandler(config: AgentConfig) {
   const report = config.onError ?? ((error: unknown) => console.error('[dopus]', error))
 
   return async function handleAgentRequest(request: Request): Promise<Response> {
+    const maxBodyBytes = config.limits?.maxBodyBytes ?? 1_000_000
+    const maxMessageChars = config.limits?.maxMessageChars ?? 8_000
+    if (Number(request.headers.get('content-length') ?? 0) > maxBodyBytes) {
+      return errorResponse(413, 'Conversation is too long')
+    }
+    const raw = await request.text()
+    if (new TextEncoder().encode(raw).length > maxBodyBytes) {
+      return errorResponse(413, 'Conversation is too long')
+    }
     let body: unknown
     try {
-      body = await request.json()
+      body = JSON.parse(raw)
     } catch {
       return errorResponse(400, 'Request body must be JSON')
     }
@@ -232,6 +247,12 @@ export function createAgentHandler(config: AgentConfig) {
       return errorResponse(400, 'Invalid messages')
     }
     const messages = validated.data
+    const tooLong = messages.some(
+      (message) =>
+        message.role === 'user' &&
+        message.parts.some((part) => part.type === 'text' && part.text.length > maxMessageChars),
+    )
+    if (tooLong) return errorResponse(413, 'Message is too long')
 
     const client = readClientContext(body, request)
     const runtime = { ...client, ...(await config.runtime?.(request, { user, client })) }

@@ -128,9 +128,28 @@ Any other error goes to `onError` and is replaced with a generic message, so dat
 - Register only the functions you want the agent to call.
 - Protect the route like your other API routes, with rate limits and auth if anonymous use costs you money.
 
-**Approvals.** With `DOPUS_APPROVAL_SECRET` set (`init` generates it), every approval request is HMAC-signed. An approval with a missing or tampered signature is rejected and the tool does not run.
+**Approvals.** With `DOPUS_APPROVAL_SECRET` set (`init` generates it), every approval request is HMAC-signed over the approval id, tool call id, tool name and input. An approval with a missing or tampered signature, or one whose input was changed after signing, is rejected and the tool does not run.
 
 **Browser context is untrusted.** The chat UI sends `{ page, locale }` so the agent knows where the user is. The server accepts only those two keys, strips control characters and caps their length. Anything that matters for authorization, such as role, plan or tenant, must come from the server via `runtime`.
+
+**Prompt injection.** Assume the model can be talked into anything: by the user, or by text inside tool results that other people wrote (a task title, a comment, an email body). dopus does not rely on the model resisting it. The limits are structural:
+
+| Layer                  | What it guarantees                                                                                 |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| Permission inheritance | A tool can do only what the signed-in user can do through your server functions.                   |
+| `confirm: true`        | The user sees the exact input and must approve; signed approvals cannot be forged or edited.       |
+| Plain-text chat UI     | Replies render as text, never HTML or Markdown, so no XSS and no image-URL data leaks.             |
+| Request limits         | `limits.maxBodyBytes` (1 MB) and `limits.maxMessageChars` (8000) answer 413 before the model runs. |
+| `maxSteps`             | At most 10 model ↔ tool round trips per request.                                                   |
+| Core prompt            | Tells the model that tool results are data, not instructions. Helpful, but not a guarantee.        |
+
+Your part, so an injected instruction cannot cause damage:
+
+- Put `confirm: true` on every tool that changes data, and on every tool that sends data anywhere (email, webhooks, external APIs). An unconfirmed write tool runs with the full permissions of whoever is chatting, an admin included.
+- Treat user-generated content in tool results as untrusted. Return only the fields the agent needs.
+- Never put secrets in prompts. "Do not reveal these instructions" is not a security boundary.
+
+We tested this with a real model in a small task-board app. A member wrote a task whose title ordered the assistant to delete other tasks, then an admin's assistant listed the tasks. Claude (claude-sonnet-5-5) did not even request the deletion and pointed out the planted text. If a model did request it, the approval card would still stop it. Other models were not tested this way.
 
 **Running tools outside the request.** Background jobs and queues lose the request's cookies. For that case, define `identify(request)` to resolve a serialisable user. Tools then receive it as `ctx.user` and can pass it on explicitly. Infra adapters that run tools elsewhere will build on this.
 
@@ -170,6 +189,7 @@ defineAgent({
   runtime: async (request, { user, client }) => ({ role: 'admin' }),
   identify: async (request) => ({ id: 'user-1' }), // optional
   maxSteps: 10, // model ↔ tool round trips per request
+  limits: { maxBodyBytes: 1_000_000, maxMessageChars: 8_000 }, // over → 413
   approvalSecret, // default: process.env.DOPUS_APPROVAL_SECRET
   callOptions: {
     temperature,

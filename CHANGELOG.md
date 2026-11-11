@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.2.3 — 2026-11-11
 
+- `limits: { maxBodyBytes, maxMessageChars }` (defaults 1 MB and 8000): oversized requests get 413 before the model
+  is called.
+- README: a prompt-injection section listing what is enforced structurally (permissions, signed approvals, plain-text
+  UI, limits) and what app developers must do (`confirm` on every write or send tool, untrusted tool data, no secrets
+  in prompts). Checked with Claude against indirect injection planted in another user's task title.
 - Core prompt: a declined confirmation is acknowledged as the user's choice, not reported as a failure, and the model
   is told not to narrate its own reasoning (Claude was showing "the task is assigned to the user, so I can move it").
 - `internal-ops` preset: one sentence after a single change; counts only for bulk changes.

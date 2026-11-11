@@ -235,6 +235,22 @@ describe('createAgentHandler', () => {
     expect(JSON.stringify(model2.doStreamCalls[1]?.prompt)).toContain('Order o1 is already shipped')
   })
 
+  it('rejects oversized requests with 413 before calling the model', async () => {
+    const model = scriptedModel(textStep('hi'))
+    const POST = createAgentHandler(
+      defineAgent({
+        model,
+        tools: {},
+        limits: { maxBodyBytes: 2_000, maxMessageChars: 100 },
+        ...silent,
+      }),
+    )
+    expect((await POST(chatRequest([userMessage('x'.repeat(101))]))).status).toBe(413)
+    expect((await POST(chatRequest([userMessage('y'.repeat(3_000))]))).status).toBe(413)
+    expect(model.doStreamCalls).toHaveLength(0)
+    expect((await POST(chatRequest([userMessage('ok')]))).status).toBe(200)
+  })
+
   it('rejects bad request bodies', async () => {
     const POST = createAgentHandler(defineAgent({ model: scriptedModel(), tools: {}, ...silent }))
     const notJson = new Request('http://localhost/api/agent', { method: 'POST', body: '{' })
