@@ -257,6 +257,7 @@
 }
 
 .dopus-launcher {
+  position: relative;
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -266,6 +267,20 @@
   font-size: 22px;
   cursor: pointer;
   box-shadow: 0 6px 20px rgb(0 0 0 / 0.2);
+}
+
+/* A reply arrived while the panel was closed (e.g. a background job's follow-up). */
+.dopus-launcher[data-unread]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  /* The launcher sits outside .dopus-chat, where the --dopus-* variables live, so its colors are fixed too. */
+  background: #dc2626;
+  border: 2px solid #ffffff;
 }
 
 /* Assistant replies (Markdown). Compact spacing for a chat bubble. */

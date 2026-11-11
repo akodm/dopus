@@ -49,6 +49,7 @@ const DEFAULT_LABELS = {
   jobRunning: 'Working in the background',
   jobDone: 'Background task finished',
   open: 'Open assistant',
+  unread: 'New reply',
   close: 'Close assistant',
 }
 
@@ -70,6 +71,8 @@ export interface AgentChatProps {
   channel?: AgentChannel
   /** Follow-up turns the agent may take in a row on finished jobs before waiting for the user. Default 3. */
   maxJobFollowUps?: number
+  /** Called when the agent finishes a reply. `AgentWidget` uses it to mark the closed launcher as unread. */
+  onReply?: () => void
 }
 
 export interface AgentChannel {
@@ -278,9 +281,15 @@ export function AgentChat({
   className,
   channel,
   maxJobFollowUps = 3,
+  onReply,
 }: AgentChatProps) {
   const labels = { ...DEFAULT_LABELS, ...labelOverrides }
   const router = useRouter()
+  // useChat keeps the callbacks it was created with; read the latest onReply through a ref.
+  const onReplyRef = useRef(onReply)
+  useEffect(() => {
+    onReplyRef.current = onReply
+  })
   const [transport] = useState(
     () =>
       new DefaultChatTransport({
@@ -308,6 +317,7 @@ export function AgentChat({
       if (message.parts.some((part) => isToolUIPart(part) && part.state === 'output-available')) {
         router.refresh()
       }
+      onReplyRef.current?.()
     },
   })
   const [input, setInput] = useState('')
@@ -478,19 +488,34 @@ export function AgentChat({
 /** Floating button that opens the chat in a panel. Put it once in your root layout. */
 export function AgentWidget(props: AgentChatProps) {
   const [open, setOpen] = useState(false)
+  // A reply finished while the panel was closed, e.g. the agent continuing after a background job.
+  const [unread, setUnread] = useState(false)
   const labels = { ...DEFAULT_LABELS, ...props.labels }
   return (
     <div className="dopus-widget">
       {/* Hidden rather than unmounted, so closing the panel keeps the conversation. */}
       <div hidden={!open}>
-        <AgentChat {...props} className="dopus-panel" />
+        <AgentChat
+          {...props}
+          className="dopus-panel"
+          onReply={() => {
+            if (!open) setUnread(true)
+            props.onReply?.()
+          }}
+        />
       </div>
       <button
         type="button"
         className="dopus-launcher"
         aria-expanded={open}
-        aria-label={open ? labels.close : labels.open}
-        onClick={() => setOpen((value) => !value)}
+        aria-label={
+          open ? labels.close : unread ? `${labels.open} (${labels.unread})` : labels.open
+        }
+        data-unread={!open && unread ? '' : undefined}
+        onClick={() => {
+          setOpen((value) => !value)
+          setUnread(false)
+        }}
       >
         {open ? '×' : '✦'}
       </button>

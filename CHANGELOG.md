@@ -7,6 +7,8 @@
   the new template as `<file>.new`, replace, or skip). `--dry-run`, `--yes` (edited files get `.new`), `--force`,
   `--no-install`. `agent.config.ts`, `app.ts` and `.env.local` are never touched. It recognises untouched copies
   from every release since 0.1.0, so existing projects can upgrade straight from any of them.
+- Chat UI: the widget launcher shows a dot when a reply finishes while the panel is closed (e.g. the agent continuing
+  after a background job), cleared when opened; `labels.unread`, and an `onReply` callback on `AgentChat`.
 
 ## 0.2.6 — 2026-11-11
 
