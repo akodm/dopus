@@ -5,6 +5,7 @@
  * Talks to POST /api/agent with the AI SDK `useChat` protocol.
  * Styles: ./agent-chat.css — plain global CSS with `dopus-` class names (works with or without Tailwind).
  * Background jobs: pass a `channel` and the agent continues by itself when a job it started finishes.
+ * Chat history: pass `history` to keep the conversation across reloads (sessionStorage, your API...).
  */
 import { useChat } from '@ai-sdk/react'
 import {
@@ -76,6 +77,16 @@ export interface AgentChatProps {
   maxJobFollowUps?: number
   /** Called when the agent finishes a reply. `AgentWidget` uses it to mark the closed launcher as unread. */
   onReply?: () => void
+  /** Keep the conversation across reloads. Off by default (the chat lives in memory). */
+  history?: AgentChatHistory
+}
+
+/** Where the conversation is kept. Both are optional; neither may throw away the user's data silently. */
+export interface AgentChatHistory {
+  /** Called once when the chat mounts; return the conversation to restore. */
+  load?: () => UIMessage[] | null | undefined | Promise<UIMessage[] | null | undefined>
+  /** Called when the chat settles after a change, and with `[]` on "New chat". */
+  save?: (messages: UIMessage[]) => void | Promise<void>
 }
 
 export interface AgentChannel {
@@ -298,6 +309,7 @@ export function AgentChat({
   channel,
   maxJobFollowUps = 3,
   onReply,
+  history,
 }: AgentChatProps) {
   const labels = { ...DEFAULT_LABELS, ...labelOverrides }
   const router = useRouter()
@@ -339,6 +351,39 @@ export function AgentChat({
   const [input, setInput] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
   const busy = status === 'submitted' || status === 'streaming'
+
+  // Chat history: restore once on mount (after hydration), then save whenever the chat settles.
+  const historyRef = useRef(history)
+  useEffect(() => {
+    historyRef.current = history
+  })
+  const [restored, setRestored] = useState(!history?.load)
+  useEffect(() => {
+    const load = historyRef.current?.load
+    if (!load) return
+    let cancelled = false
+    Promise.resolve()
+      .then(load)
+      .then((saved) => {
+        // Keep anything the user already typed while it was loading.
+        if (!cancelled && saved?.length)
+          setMessages((current) => (current.length ? current : saved))
+      })
+      .catch((error) => console.error('[dopus] history.load failed', error))
+      .finally(() => {
+        if (!cancelled) setRestored(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [setMessages])
+  useEffect(() => {
+    // Empty is saved only by "New chat", so a slow or failed load never overwrites what was stored.
+    if (!restored || status !== 'ready' || messages.length === 0) return
+    Promise.resolve(historyRef.current?.save?.(messages)).catch((error) =>
+      console.error('[dopus] history.save failed', error),
+    )
+  }, [restored, status, messages])
 
   // Jobs the channel reported finished. Kept even before this chat shows the job (a job can finish before
   // its tool output has streamed in); only IDs this chat started are acted on.
@@ -428,6 +473,9 @@ export function AgentChat({
     clearError()
     setMessages([])
     setInput('')
+    Promise.resolve(historyRef.current?.save?.([])).catch((error) =>
+      console.error('[dopus] history.save failed', error),
+    )
   }
 
   // The route answers 413 when the history is over its size limit; retrying cannot help then.

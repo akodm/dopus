@@ -104,6 +104,35 @@ test.describe('background jobs', () => {
   })
 })
 
+test.describe('chat history (the example keeps it in sessionStorage, per user)', () => {
+  test('the conversation survives a reload; "New chat" clears it', async ({ page, baseURL }) => {
+    await openChat(page, baseURL)
+    await send(page, 'who am I')
+    await expect(chat(page).getByText('✓ Get current user')).toBeVisible()
+
+    await page.reload()
+    await page.getByRole('button', { name: 'Open assistant' }).click()
+    await expect(chat(page).getByText('who am I')).toBeVisible()
+    await expect(chat(page).getByText('✓ Get current user')).toBeVisible()
+
+    await chat(page).getByRole('button', { name: 'New chat' }).click()
+    await page.reload()
+    await page.getByRole('button', { name: 'Open assistant' }).click()
+    await expect(chat(page).locator('.dopus-message')).toHaveCount(0)
+  })
+
+  test('another user in the same tab does not see it', async ({ page, baseURL }) => {
+    await openChat(page, baseURL)
+    await send(page, 'who am I')
+    await expect(chat(page).getByText('✓ Get current user')).toBeVisible()
+
+    await page.context().addCookies([{ name: 'session', value: 'bob', url: baseURL ?? '' }])
+    await page.reload()
+    await page.getByRole('button', { name: 'Open assistant' }).click()
+    await expect(chat(page).locator('.dopus-message')).toHaveCount(0)
+  })
+})
+
 test.describe('chat basics', () => {
   test('an over-long message offers a new chat, which clears the conversation', async ({
     page,

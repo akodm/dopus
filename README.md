@@ -224,12 +224,67 @@ Anthropic gets an explicit cache breakpoint after layer 3. OpenAI and Gemini cac
 - `<AgentChat />`: the panel;
 - `<AgentWidget />`: a floating launcher that opens the panel.
 
-Both accept `api`, `suggestions`, `labels` (every UI string, for translation), `className`, and `channel` /
-`maxJobFollowUps` for [background jobs](#background-jobs).
+Both accept `api`, `suggestions`, `labels` (every UI string, for translation), `className`, `channel` /
+`maxJobFollowUps` for [background jobs](#background-jobs), and `history` to [keep the chat](#chat-history).
 
 The UI shows each tool call as it runs. When a reply finishes while the widget is closed (for example the agent
 continuing after a [background job](#background-jobs)), the launcher shows a dot until it is opened (`labels.unread`
 for screen readers; `onReply` if you want your own signal). It renders an approve/decline card for confirmed tools and continues automatically once the user answers. When a tool has run, it calls `router.refresh()` so server components show the changed data. Closing the widget keeps the conversation, and a "New chat" button clears it. Assistant replies render as Markdown (tables, lists, code) through `react-markdown` with `remark-gfm`, which `init` installs. Raw HTML is never rendered, images show only their alt text, and links keep only http(s), mailto and relative URLs. If a request is over the size limit (413), the UI says so and offers a new chat instead of a useless retry. It also has stop and retry buttons, and it does not send on Enter while an IME (Korean, Japanese, Chinese) is still composing.
+
+### Chat history
+
+By default the conversation lives in memory: a reload starts a new chat. To keep it, pass `history` with `load`
+(called once on mount) and `save` (called when the chat settles, and with `[]` on "New chat"). Where it goes is up to
+you. Both hold functions, so set them up in a client component.
+
+In this tab only (sessionStorage), keyed by user so that after a sign-out the next user in the tab does not see it:
+
+```tsx
+// components/agent/agent.tsx
+'use client'
+import { useMemo } from 'react'
+import { type AgentChatHistory, type AgentChatProps, AgentWidget } from './agent-chat'
+
+const sessionHistory = (key: string): AgentChatHistory => ({
+  load: () => JSON.parse(sessionStorage.getItem(key) ?? '[]'),
+  save: (messages) => sessionStorage.setItem(key, JSON.stringify(messages)),
+})
+
+export function Agent({ userId, ...props }: AgentChatProps & { userId: string }) {
+  const history = useMemo(() => sessionHistory(`dopus-chat:${userId}`), [userId])
+  return <AgentWidget {...props} history={history} />
+}
+```
+
+In your database: save on the server, where you know the user, and load from the client.
+
+```ts
+// agent.config.ts
+onFinish: async ({ user, messages }) => {
+  if (user) await db.chat.upsert({ userId: user.id, messages })   // needs `identify`
+},
+```
+
+```tsx
+// components/agent/agent.tsx: loadChat is your server action returning the saved messages
+;<AgentWidget
+  history={{
+    load: () => loadChat(),
+    save: (m) => {
+      if (m.length === 0) clearChat()
+    },
+  }}
+/>
+```
+
+Things to know:
+
+- **Tool results are stored too.** Whatever your tools returned (orders, names) is in the saved conversation. Keep it
+  per user, and clear it on sign-out if the device may be shared.
+- **It is still one conversation.** The browser sends the whole history with each message, so a long chat reaches the
+  size limit (413) and the UI offers a new chat. There is no list of past chats.
+- **Background jobs across a reload.** A job that finishes while the page is reloading is not announced again, so its
+  "working in the background" line stays. The user can ask, and the agent reads the result with your status tool.
 
 Styling is one plain CSS file (`agent-chat.css`) whose classes all start with `dopus-`, themed through `--dopus-*` variables, with dark mode included. It is deliberately not a CSS Module: create-next-app's Tailwind setup routes every `*.css` file, modules included, through its own Turbopack loader, which left module classes unstyled. It needs no Tailwind and no component library. The file is yours, so restyle it or swap in your own components.
 
@@ -285,6 +340,7 @@ defineAgent({
   },
 
   // Once per request, when the reply is done: tokens summed over all steps.
+  // also gets `messages`: the whole conversation after this reply (see "Chat history")
   onFinish: async ({ user, model, usage, steps, finishReason, durationMs }) => {
     await db.usage.insert({ userId: user?.id, model: model.modelId, ...usage })
   },

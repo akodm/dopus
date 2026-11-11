@@ -51,7 +51,10 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
   }) => Response | undefined | Promise<Response | undefined>
   /** Called once per tool call: ran (`success` / `error`) or declined by the user (`denied`). For audit logs. */
   onToolCall?: (event: ToolCallEvent) => void | Promise<void>
-  /** Called once per request when the reply is finished: tokens, steps, model. For usage tracking. */
+  /**
+   * Called once per request when the reply is finished: tokens, steps, model (usage tracking), and the whole
+   * conversation including the reply (to save chat history in your database).
+   */
   onFinish?: (event: FinishEvent) => void | Promise<void>
   /** Maximum model steps (tool round trips) per request. Default 10. */
   maxSteps?: number
@@ -114,6 +117,11 @@ export interface FinishEvent {
   steps: number
   finishReason: string
   durationMs: number
+  /**
+   * The conversation after this reply, as the chat UI holds it (`UIMessage[]`). Save it to restore the chat later
+   * (the chat UI's `history.load`). It came from the browser, so treat it as the user's own data, not as trusted.
+   */
+  messages: UIMessage[]
 }
 
 const KEEP_ALIVE = new TextEncoder().encode(': keep-alive\n\n')
@@ -438,6 +446,20 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
     const runtime = { ...client, ...(await config.runtime?.(request, { user, client })) }
     const approvalSecret = config.approvalSecret ?? process.env.DOPUS_APPROVAL_SECRET
 
+    // onFinish needs the usage (from streamText) and the final messages (from the UI stream); call it once both are in.
+    const finish: {
+      usage?: Omit<FinishEvent, 'messages'>
+      messages?: UIMessage[]
+      done?: boolean
+      emit: () => Promise<void>
+    } = {
+      async emit() {
+        if (this.done || !this.usage || !this.messages) return
+        this.done = true
+        await runHook(config.onFinish, { ...this.usage, messages: this.messages }, report)
+      },
+    }
+
     const result = streamText({
       ...config.callOptions,
       model: config.model,
@@ -471,23 +493,20 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
       onError: ({ error }) => report(error),
       onEnd: async (event) => {
         await config.callOptions?.onEnd?.(event)
-        await runHook(
-          config.onFinish,
-          {
-            user,
-            model: { provider: event.model.provider, modelId: event.model.modelId },
-            usage: {
-              inputTokens: event.totalUsage.inputTokens,
-              outputTokens: event.totalUsage.outputTokens,
-              totalTokens: event.totalUsage.totalTokens,
-              cachedInputTokens: event.totalUsage.inputTokenDetails?.cacheReadTokens,
-            },
-            steps: event.stepNumber + 1,
-            finishReason: event.finishReason,
-            durationMs: Date.now() - started,
+        finish.usage = {
+          user,
+          model: { provider: event.model.provider, modelId: event.model.modelId },
+          usage: {
+            inputTokens: event.totalUsage.inputTokens,
+            outputTokens: event.totalUsage.outputTokens,
+            totalTokens: event.totalUsage.totalTokens,
+            cachedInputTokens: event.totalUsage.inputTokenDetails?.cacheReadTokens,
           },
-          report,
-        )
+          steps: event.stepNumber + 1,
+          finishReason: event.finishReason,
+          durationMs: Date.now() - started,
+        }
+        await finish.emit()
       },
     })
 
@@ -496,6 +515,11 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
         stream: result.stream,
         tools,
         originalMessages: messages,
+        onEnd: async ({ messages: final, isAborted }) => {
+          if (isAborted) return
+          finish.messages = final
+          await finish.emit()
+        },
         // A ToolError is already safe for the model, so the client may keep it too: the chat history it
         // sends back must carry the same text, or the model loses why an earlier call failed.
         onError: (error) => {

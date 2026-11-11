@@ -516,6 +516,29 @@ describe('hooks', () => {
     )
   })
 
+  it('onFinish gets the whole conversation including the reply, for saving chat history', async () => {
+    const onFinish = vi.fn()
+    const POST = createAgentHandler(
+      defineAgent({
+        model: scriptedModel(toolCallStep('whoami', {}), textStep('Kim')),
+        tools,
+        onFinish,
+        ...silent,
+      }),
+    )
+    await readChunks(await POST(chatRequest([userMessage('who am I', 'u1')])))
+    const [event] = onFinish.mock.calls[0] as [{ messages: UIMessage[] }]
+    const { messages } = event
+    expect(messages.map((m) => m.role)).toEqual(['user', 'assistant'])
+    expect(messages[0]?.id).toBe('u1')
+    expect(messages[1]?.parts).toContainEqual(
+      expect.objectContaining({ type: 'tool-whoami', state: 'output-available' }),
+    )
+    expect(messages[1]?.parts).toContainEqual(
+      expect.objectContaining({ type: 'text', text: 'Kim' }),
+    )
+  })
+
   it('a throwing hook is reported and does not break the reply', async () => {
     const onError = vi.fn()
     const POST = createAgentHandler(

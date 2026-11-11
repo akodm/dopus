@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Chat history: the chat UI takes `history={{ load, save }}` to keep the conversation across reloads; off by default.
+  Where it goes is the app's choice: the README has a sessionStorage recipe (keyed per user) and a database one.
+  The server's `onFinish` event now also carries `messages`, the whole conversation after the reply, so it can be
+  saved where the user is known. Existing projects: `dopus update`.
 - Tests: browser tests of the copied chat UI (Playwright, scripted model) run in CI and before every release:
   approve, decline, approve all, cards left open while the user writes (including one approved, the 0.2.8 bug),
   background job follow-up, the unread dot, the over-long message. The example app gained a background export job
