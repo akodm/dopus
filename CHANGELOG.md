@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.4 — 2026-11-11
 
 - Time budget: `createAgentHandler(agent, { maxDuration })`. Once 75% of the route's `maxDuration` has passed, the
   agent starts no more tool calls and answers with what it has, instead of being cut off by the platform. The
