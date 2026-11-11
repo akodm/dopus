@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 — 2026-11-11
 
 Found by installing dopus 0.2.1 into a fresh `create-next-app@16.4.6` project:
 
