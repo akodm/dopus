@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Fix: typing a new message while approval cards were open broke the chat. The model lost its own proposal and
+  asked for the same changes again, and once one of those older cards had been approved, every later request in that
+  conversation failed with a missing tool result (after newer approved tools had already run, so the chat lost
+  their record). The route now settles cards in older messages before the model runs: still open or approved but
+  never run → "not run" (a stale approval is never executed), declined → denied. Conversations already in that state
+  work again.
+- Core prompt: only the Approve button approves; a chat message is not an approval. When the user says to go ahead,
+  the agent calls the tool again so a card appears.
+- Chat UI: cards in older messages show "Not run" instead of live buttons, and "Approve all / Decline all" appear
+  under two or more open cards (`labels.notRun`, `approveAll`, `declineAll`). Existing projects: `dopus update`.
+
 ## 0.2.7 — 2026-11-11
 
 - `dopus update`: brings the files `init` copied (chat UI, route, preset prompt) up to the installed version's

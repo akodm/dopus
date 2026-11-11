@@ -125,6 +125,11 @@
   gap: 8px;
 }
 
+/* "Approve all / Decline all" under several open cards. */
+.dopus-approval-all {
+  justify-content: flex-end;
+}
+
 .dopus-json {
   margin: 0;
   font:

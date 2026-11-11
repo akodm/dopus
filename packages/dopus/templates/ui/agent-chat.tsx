@@ -44,6 +44,9 @@ const DEFAULT_LABELS = {
   decline: 'Decline',
   approved: 'Approved',
   declined: 'Declined',
+  notRun: 'Not run',
+  approveAll: 'Approve all',
+  declineAll: 'Decline all',
   failed: 'Failed',
   details: 'Details',
   jobRunning: 'Working in the background',
@@ -115,13 +118,23 @@ function ToolCall({
   labels,
   onRespond,
   waiting,
+  stale,
 }: {
   part: ToolPart
   labels: AgentChatLabels
   onRespond: (approvalId: string, approved: boolean) => void
   waiting: boolean
+  /** In an older message: the user wrote instead of answering, so the card no longer applies. */
+  stale: boolean
 }) {
   const name = humanize(getToolName(part))
+  if (stale && (part.state === 'approval-requested' || part.state === 'approval-responded')) {
+    return (
+      <div className="dopus-tool" data-state="declined">
+        {labels.notRun}: {name}
+      </div>
+    )
+  }
   if (waiting) {
     return (
       <div className="dopus-tool" data-state="running">
@@ -233,11 +246,13 @@ function Message({
   labels,
   onRespond,
   waitingJobs,
+  stale,
 }: {
   message: UIMessage
   labels: AgentChatLabels
   onRespond: (approvalId: string, approved: boolean) => void
   waitingJobs: Set<string>
+  stale: boolean
 }) {
   if (isJobNotice(message)) {
     return <div className="dopus-notice">✓ {labels.jobDone}</div>
@@ -265,6 +280,7 @@ function Message({
               labels={labels}
               onRespond={onRespond}
               waiting={job !== undefined && waitingJobs.has(job)}
+              stale={stale}
             />
           )
         }
@@ -399,6 +415,13 @@ export function AgentChat({
   }
 
   const respond = (id: string, approved: boolean) => addToolApprovalResponse({ id, approved })
+  // Open cards of the newest message. The chat continues once every one is answered.
+  const openApprovals = (messages.at(-1)?.parts ?? []).flatMap((part) =>
+    isToolUIPart(part) && part.state === 'approval-requested' ? [part.approval.id] : [],
+  )
+  async function respondAll(approved: boolean) {
+    for (const id of openApprovals) await addToolApprovalResponse({ id, approved })
+  }
 
   function newChat() {
     if (busy) stop()
@@ -438,15 +461,26 @@ export function AgentChat({
             ))}
           </div>
         )}
-        {messages.map((message) => (
+        {messages.map((message, index) => (
           <Message
             key={message.id}
             message={message}
             labels={labels}
             onRespond={respond}
             waitingJobs={waitingJobs}
+            stale={index < messages.length - 1}
           />
         ))}
+        {openApprovals.length > 1 && (
+          <div className="dopus-approval-actions dopus-approval-all">
+            <button type="button" className="dopus-primary" onClick={() => respondAll(true)}>
+              {labels.approveAll} ({openApprovals.length})
+            </button>
+            <button type="button" className="dopus-secondary" onClick={() => respondAll(false)}>
+              {labels.declineAll}
+            </button>
+          </div>
+        )}
         {status === 'submitted' && <div className="dopus-thinking">{labels.thinking}</div>}
         {error && (
           <div className="dopus-error" role="alert">

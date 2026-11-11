@@ -1,3 +1,4 @@
+import type { LanguageModelV4StreamPart } from '@ai-sdk/provider'
 import type { UIMessage } from 'ai'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -603,5 +604,100 @@ describe('background jobs', () => {
     const chunks = await readChunks(await POST(chatRequest([userMessage('go')])))
     expect(chunks).toContainEqual(expect.objectContaining({ type: 'tool-output-error' }))
     expect(onError).toHaveBeenCalled()
+  })
+})
+
+describe('stale approvals (the user typed instead of answering the cards)', () => {
+  const usage = {
+    inputTokens: { total: 10, noCache: 10, cacheRead: undefined, cacheWrite: undefined },
+    outputTokens: { total: 5, text: 5, reasoning: undefined },
+  }
+  const threeCalls = (prefix: string): LanguageModelV4StreamPart[] => [
+    { type: 'stream-start', warnings: [] },
+    ...[1, 2, 3].map(
+      (n) =>
+        ({
+          type: 'tool-call',
+          toolCallId: `${prefix}${n}`,
+          toolName: 'act',
+          input: JSON.stringify({ n }),
+        }) as const,
+    ),
+    { type: 'finish', finishReason: { unified: 'tool-calls', raw: undefined }, usage },
+  ]
+
+  function setup(...steps: LanguageModelV4StreamPart[][]) {
+    const act = vi.fn(async (input: { n: number }) => ({ done: input.n }))
+    const onError = vi.fn()
+    const model = scriptedModel(...steps)
+    const POST = createAgentHandler(
+      defineAgent({
+        model,
+        tools: {
+          act: defineTool(act, {
+            description: 'Act',
+            input: z.object({ n: z.number() }),
+            confirm: true,
+          }),
+        },
+        approvalSecret: 'test-secret-0123456789abcdef',
+        onError,
+      }),
+    )
+    const ask = async (messages: UIMessage[]) =>
+      assistantMessage(await readChunks(await POST(chatRequest(messages))))
+    return { POST, act, onError, model, ask }
+  }
+
+  function approve(message: UIMessage, ids?: string[]) {
+    for (const part of message.parts as {
+      toolCallId?: string
+      state?: string
+      approval?: { approved?: boolean }
+    }[]) {
+      if (part.state === 'approval-requested' && (!ids || ids.includes(part.toolCallId ?? ''))) {
+        part.state = 'approval-responded'
+        part.approval = { ...part.approval, approved: true }
+      }
+    }
+    return message
+  }
+
+  it('keeps open cards in the prompt as "not run", so the model knows what it proposed', async () => {
+    const { model, ask, onError } = setup(threeCalls('a'), textStep('ok'))
+    const u1 = userMessage('do three things', 'u1')
+    const a = await ask([u1])
+    await ask([u1, a, userMessage('approve all', 'u2')])
+    const prompt = JSON.stringify(model.doStreamCalls[1]?.prompt)
+    expect(prompt).toContain('"toolCallId":"a1"')
+    expect(prompt).toContain('Not run: the user sent a new message')
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('never runs a stale approval, and a chat that has one keeps working', async () => {
+    const { act, ask, onError, POST } = setup(threeCalls('b'), textStep('ok'))
+    const u1 = userMessage('do three things', 'u1')
+    const b = approve(await ask([u1]), ['b2'])
+    const response = await POST(chatRequest([u1, b, userMessage('just do it', 'u2')]))
+    const chunks = await readChunks(response)
+    expect(chunks).toContainEqual(expect.objectContaining({ type: 'text-delta', delta: 'ok' }))
+    expect(chunks.some((c) => c.type === 'error')).toBe(false)
+    expect(act).not.toHaveBeenCalled()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('runs the newest approved cards even when an older set has a stale approval', async () => {
+    const { act, ask, onError, POST } = setup(threeCalls('b'), threeCalls('c'), textStep('Done.'))
+    const u1 = userMessage('do three things', 'u1')
+    const b = await ask([u1])
+    const u2 = userMessage('you approve it', 'u2')
+    const c = await ask([u1, b, u2])
+    approve(b, ['b2'])
+    approve(c)
+    const chunks = await readChunks(await POST(chatRequest([u1, b, u2, c])))
+    expect(act.mock.calls.map((call) => call[0])).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }])
+    expect(chunks).toContainEqual(expect.objectContaining({ type: 'text-delta', delta: 'Done.' }))
+    expect(chunks.some((chunk) => chunk.type === 'error')).toBe(false)
+    expect(onError).not.toHaveBeenCalled()
   })
 })

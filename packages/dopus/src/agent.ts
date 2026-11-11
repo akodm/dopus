@@ -295,6 +295,46 @@ export function readClientContext(body: unknown, request: Request): ClientContex
   return { locale, page: clean(raw.page, 200) }
 }
 
+/** Reason recorded for a confirmation the conversation moved past (the model reads it). */
+export const NOT_RUN_REASON =
+  'Not run: the user sent a new message instead of approving it. If they still want it, call the tool again so they can approve it.'
+
+type Part = UIMessage['parts'][number]
+
+/**
+ * Approvals answer only the newest assistant message. In any older one, a card still open (the user typed
+ * instead of answering) or approved but never run becomes "not run"; a declined one becomes denied.
+ * Without this the model loses its own earlier proposal (open cards are dropped from the prompt), and an
+ * approved-but-unrun call makes every later request fail with a missing tool result. A stale approval is never
+ * executed: the user has moved on, so it may no longer be what they want.
+ */
+export function settleStaleApprovals(messages: UIMessage[]): UIMessage[] {
+  const last = messages.length - 1
+  return messages.map((message, index) => {
+    if (message.role !== 'assistant' || index === last) return message
+    const pending = (part: Part) =>
+      isToolUIPart(part) &&
+      (part.state === 'approval-requested' || part.state === 'approval-responded')
+    if (!message.parts.some(pending)) return message
+    return {
+      ...message,
+      parts: message.parts.map((part) => {
+        if (!pending(part) || !isToolUIPart(part) || !part.approval) return part
+        const declined = part.state === 'approval-responded' && part.approval.approved === false
+        return {
+          ...part,
+          state: 'output-denied',
+          approval: {
+            id: part.approval.id,
+            approved: false,
+            reason: declined ? part.approval.reason : NOT_RUN_REASON,
+          },
+        } as Part
+      }),
+    }
+  })
+}
+
 const JSON_HEADERS = { 'content-type': 'application/json' }
 
 function errorResponse(status: number, message: string) {
@@ -357,7 +397,7 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
     if (!validated.success) {
       return errorResponse(400, 'Invalid messages')
     }
-    const messages = validated.data
+    const messages = settleStaleApprovals(validated.data)
     const tooLong = messages.some(
       (message) =>
         message.role === 'user' &&
