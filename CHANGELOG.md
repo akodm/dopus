@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.9 — 2026-11-11
 
 - Chat history: the chat UI takes `history={{ load, save }}` to keep the conversation across reloads; off by default.
   Where it goes is the app's choice: the README has a sessionStorage recipe (keyed per user) and a database one.
