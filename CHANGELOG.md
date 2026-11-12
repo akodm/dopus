@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.14 — 2026-11-12
 
 - Fix: `onFinish` gave a new reply the id `''` (only a reply continued after an approval had an id), so saving
   `newMessages` by id, as the README shows, put every reply of a user on one row. Replies now get an id, the same
