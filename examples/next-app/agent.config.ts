@@ -58,5 +58,8 @@ export default defineAgent({
     const session = await getSession()
     return session ? { id: session.user, role: session.role } : undefined
   },
+  // The role goes in the per-request layer, never in the shared prompt: describing admin features there would tell
+  // every user they exist.
+  runtime: (_request, { user }) => (user ? { role: String(user.role) } : undefined),
   prompt: { preset, app, locales },
 })

@@ -252,6 +252,10 @@ deleteUser: defineTool(deleteUser, {
 // identify: async () => { const s = await getSession(); return s ? { id: s.userId, role: s.role } : undefined },
 ```
 
+Keep admin features out of the shared prompt layers (`app`, `preset`): every user gets those, so describing them
+there tells everyone they exist. The tool's own description is enough, and only users who may use it see it. If the
+model also needs to know the role, pass it per request with `runtime: (_, { user }) => ({ role: user?.role })`.
+
 An approval card for such a tool that is answered after the user lost the role is not run. If `access` throws, the
 tool is hidden for that request and the error goes to `onError`.
 

@@ -2,7 +2,7 @@
  * Layer 3 — App context. Copied by `dopus init`; this file is yours to edit.
  */
 const appPrompt = `Service: dopus example shop — a tiny store used to demonstrate dopus.
-Users: signed-in customers (alice or bob) checking and cancelling their orders.
+Users: people signed in to the shop, checking and cancelling orders. What each user may do depends on their role.
 Key concepts: an order has an id like "o-1", an item and a status (open, shipped, cancelled). Only open orders can be cancelled.
 Human help: this is a demo; there is no human support.`
 
