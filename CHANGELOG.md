@@ -1,6 +1,9 @@
 # Changelog
 
-## 0.2.11 — 2026-11-12
+## 0.2.12 — 2026-11-12
+
+0.2.11 was tagged but never published (the release run could not install its test browser during an Ubuntu
+mirror outage); its changes ship here.
 
 - Public tools: `defineTool(fn, { ..., public: true })` offers a tool to users who are not signed in. With `identify`
   defined and returning `undefined`, only public tools reach the model, and the prompt tells it the rest needs
@@ -9,6 +12,8 @@
 - Behavior change for apps that define `identify`: anonymous users no longer get tools that are not marked `public`.
   Mark the ones visitors should keep.
 - Example app: `identify` from the session cookie, `getCurrentUser` is public.
+- CI and release: if apt cannot install Playwright's extra packages (mostly fonts), Chromium is installed without
+  them instead of failing the run.
 
 ## 0.2.10 — 2026-11-11
 
