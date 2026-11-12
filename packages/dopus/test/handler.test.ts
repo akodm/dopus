@@ -899,3 +899,144 @@ describe('public tools (users who are not signed in)', () => {
     expect(getProduct).toHaveBeenCalled()
   })
 })
+
+describe('tools limited by access (roles)', () => {
+  type Role = 'admin' | 'member'
+  function setup(
+    steps: LanguageModelV4StreamPart[][],
+    options: {
+      identify?: boolean
+      access?: (user: { id: string; role?: unknown }) => boolean
+    } = {},
+  ) {
+    const listOrders = vi.fn(async () => [{ id: 'o1' }])
+    const deleteUser = vi.fn(async (input: { userId: string }) => ({ deleted: input.userId }))
+    const onError = vi.fn()
+    const onToolCall = vi.fn()
+    const model = scriptedModel(...steps)
+    const POST = createAgentHandler(
+      defineAgent({
+        model,
+        tools: {
+          listOrders: defineTool(listOrders, { description: 'List orders', input: z.object({}) }),
+          deleteUser: defineTool(deleteUser, {
+            description: 'Delete a user account (admin)',
+            input: z.object({ userId: z.string() }),
+            confirm: true,
+            access: options.access ?? ((user) => user.role === 'admin'),
+          }),
+        },
+        ...(options.identify === false
+          ? {}
+          : {
+              identify: (request: Request) => {
+                const role = request.headers.get('cookie')?.split('=')[1] as Role | undefined
+                return role ? { id: `${role}-1`, role } : undefined
+              },
+            }),
+        approvalSecret: 'test-secret-0123456789abcdef',
+        onError,
+        onToolCall,
+      }),
+    )
+    const offered = (call: number) =>
+      (model.doStreamCalls[call]?.tools ?? []).map((t) => ('name' in t ? t.name : ''))
+    const prompt = (call: number) => JSON.stringify(model.doStreamCalls[call]?.prompt)
+    return { POST, model, deleteUser, onError, onToolCall, offered, prompt }
+  }
+  const as = (role: Role) => ({ cookie: `role=${role}` })
+
+  it('an admin gets the admin tool', async () => {
+    const { POST, offered } = setup([textStep('ok')])
+    await readChunks(await POST(chatRequest([userMessage('hi')], as('admin'))))
+    expect(offered(0)).toEqual(['listOrders', 'deleteUser'])
+  })
+
+  it('a member is not told the admin tool exists: not offered, not named, no note', async () => {
+    const { POST, offered, prompt } = setup([textStep('ok')])
+    await readChunks(await POST(chatRequest([userMessage('delete user u2')], as('member'))))
+    expect(offered(0)).toEqual(['listOrders'])
+    expect(prompt(0)).not.toContain('deleteUser')
+    expect(prompt(0)).not.toContain('Delete a user account')
+    expect(prompt(0)).not.toContain('Not signed in.')
+  })
+
+  it('anonymous users never get it', async () => {
+    const { POST, offered } = setup([textStep('ok')], { access: () => true })
+    await readChunks(await POST(chatRequest([userMessage('hi')])))
+    expect(offered(0)).toEqual([])
+  })
+
+  it('without identify it is never offered, and defineAgent warns', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { POST, offered } = setup([textStep('ok')], { identify: false })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('`access` need `identify`'))
+    warn.mockRestore()
+    await readChunks(await POST(chatRequest([userMessage('hi')], as('admin'))))
+    expect(offered(0)).toEqual(['listOrders'])
+  })
+
+  it('a failing access check hides the tool and is reported', async () => {
+    const { POST, offered, onError } = setup([textStep('ok')], {
+      access: () => {
+        throw new Error('role lookup failed')
+      },
+    })
+    await readChunks(await POST(chatRequest([userMessage('hi')], as('admin'))))
+    expect(offered(0)).toEqual(['listOrders'])
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'role lookup failed' }))
+  })
+
+  it('an approval for the tool is not run once the user lost access', async () => {
+    const { POST, deleteUser, prompt, onError } = setup([
+      toolCallStep('deleteUser', { userId: 'u2' }),
+      textStep('You cannot do that.'),
+    ])
+    const first = userMessage('delete u2')
+    const asked = await assistantMessage(
+      await readChunks(await POST(chatRequest([first], as('admin')))),
+    )
+    const part = asked.parts.find((p) => p.type === 'tool-deleteUser') as {
+      state: string
+      approval: { approved?: boolean }
+    }
+    part.state = 'approval-responded'
+    part.approval = { ...part.approval, approved: true }
+
+    const chunks = await readChunks(await POST(chatRequest([first, asked], as('member'))))
+    expect(deleteUser).not.toHaveBeenCalled()
+    expect(chunks.some((c) => c.type === 'error')).toBe(false)
+    expect(prompt(1)).toContain('the user does not have access to this')
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('does not log a declined call of a tool the user may not use', async () => {
+    const { POST, onToolCall } = setup([textStep('ok')])
+    const forged: UIMessage = {
+      id: 'a1',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'tool-deleteUser',
+          toolCallId: 'c1',
+          state: 'approval-responded',
+          input: { userId: 'u2' },
+          approval: { id: 'ap1', approved: false },
+        },
+      ],
+    }
+    await readChunks(await POST(chatRequest([userMessage('x'), forged], as('member'))))
+    expect(onToolCall).not.toHaveBeenCalled()
+  })
+
+  it('a tool cannot be both public and limited by access', () => {
+    expect(() =>
+      defineTool(async () => 1, {
+        description: 'x',
+        input: z.object({}),
+        public: true,
+        access: () => true,
+      }),
+    ).toThrow(/both `public` and limited by `access`/)
+  })
+})

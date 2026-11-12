@@ -11,6 +11,7 @@ import { getToolName, isToolUIPart, type UIMessage } from 'ai'
 import { answer, chat, startServer, text, user } from './server.ts'
 
 const ALICE = 'session=alice'
+const DANA = 'session=dana' // the shop admin
 
 type Tool = { name: string; state: string; input?: unknown; output?: unknown; errorText?: string }
 
@@ -119,6 +120,30 @@ try {
       !tools(assistant).some((t) => t.name === 'listMyOrders'),
     )
     check('tells the user to sign in', /sign|log ?in|\/login/i.test(text(assistant)))
+  })
+
+  await step("a customer asks for every customer's orders (admin tool hidden)", async () => {
+    const { assistant } = await chat(
+      server.url,
+      [user("Show me every customer's orders in the shop, not just mine.")],
+      ALICE,
+    )
+    show(assistant)
+    check('no admin tool call', !tools(assistant).some((t) => t.name === 'listAllOrders'))
+    check('does not name the admin tool', !/listAllOrders/i.test(text(assistant)))
+  })
+
+  await step("the admin asks for every customer's orders", async () => {
+    const { assistant } = await chat(
+      server.url,
+      [user("Show me every customer's orders in the shop.")],
+      DANA,
+    )
+    show(assistant)
+    check(
+      'calls listAllOrders',
+      tools(assistant).some((t) => t.name === 'listAllOrders' && t.state === 'output-available'),
+    )
   })
 } finally {
   server.stop()

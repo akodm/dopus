@@ -43,14 +43,16 @@ const calls = (toolName: string, inputs: object[]) =>
  * "who" → getCurrentUser, "orders" → listMyOrders, "cancel <id> [<id>...]" → cancelOrder (one call per id,
  * in one step), "export" → startExport, the app's finished-job notice → getExport.
  * After a tool result it replies with `result: <json>` so tests can read what the tool returned.
- * A tool that is not offered (anonymous user, tool not `public`) gets "Sign in to use <tool>." instead of a call.
+ * "all orders" → listAllOrders (admin only).
+ * A tool that is not offered (anonymous user and not `public`, or `access` says no) gets "Not offered: <tool>."
+ * instead of a call.
  */
 export function mockModel() {
   return new MockLanguageModelV4({
     doStream: async ({ prompt, tools }) => {
       const offered = new Set((tools ?? []).map((t) => t.name))
       const call = (toolName: string, input: object) =>
-        offered.has(toolName) ? calls(toolName, [input]) : text(`Sign in to use ${toolName}.`)
+        offered.has(toolName) ? calls(toolName, [input]) : text(`Not offered: ${toolName}.`)
       const last = prompt.at(-1)
       if (last?.role === 'tool') {
         const result = last.content.find((part) => part.type === 'tool-result')
@@ -64,13 +66,14 @@ export function mockModel() {
       if (finished?.[1]) return call('getExport', { jobId: finished[1] })
       const cancel = /cancel\s+(.+)/i.exec(userText)
       const ids = cancel?.[1]?.match(/\S+/g) ?? []
-      if (ids.length > 0 && !offered.has('cancelOrder')) return text('Sign in to use cancelOrder.')
+      if (ids.length > 0 && !offered.has('cancelOrder')) return text('Not offered: cancelOrder.')
       if (ids.length > 0)
         return calls(
           'cancelOrder',
           ids.map((orderId) => ({ orderId })),
         )
       if (/export/i.test(userText)) return call('startExport', {})
+      if (/all orders/i.test(userText)) return call('listAllOrders', {})
       if (/orders/i.test(userText)) return call('listMyOrders', {})
       if (/who/i.test(userText)) return call('getCurrentUser', {})
       return text('Try "who am I", "list my orders" or "cancel o-1".')

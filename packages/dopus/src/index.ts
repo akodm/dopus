@@ -16,13 +16,17 @@ export {
 } from './prompt.js'
 export { PROVIDERS, type ProviderId, type ProviderInfo } from './providers.js'
 export {
+  type AgentUIMessage,
   type AgentUser,
   type ConfirmOption,
   type DopusTool,
   type DopusToolSet,
   defineTool,
+  type InferAgentUITools,
   type ToolContext,
+  type ToolInput,
   type ToolOptions,
+  type ToolOutput,
 } from './tool.js'
 
 export { VERSION } from './version.js'

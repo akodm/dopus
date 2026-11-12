@@ -40,7 +40,17 @@ describe('tools inherit the requesting user (next start)', () => {
   it('anonymous users only get public tools: member tools are not offered at all', async () => {
     const { assistant } = await chat(server.url, [user('list my orders')])
     expect(assistant.parts.some((part) => part.type.startsWith('tool-'))).toBe(false)
-    expect(text(assistant)).toBe('Sign in to use listMyOrders.')
+    expect(text(assistant)).toBe('Not offered: listMyOrders.')
+  })
+
+  it('a tool limited by access is offered to the admin only', async () => {
+    const member = await chat(server.url, [user('list all orders')], ALICE)
+    expect(member.assistant.parts.some((part) => part.type.startsWith('tool-'))).toBe(false)
+    expect(text(member.assistant)).toBe('Not offered: listAllOrders.')
+
+    const admin = await chat(server.url, [user('list all orders')], 'session=dana')
+    const orders = toolPart(admin.assistant).output as { owner: string }[]
+    expect(new Set(orders.map((o) => o.owner))).toEqual(new Set(['alice', 'bob', 'carol']))
   })
 })
 

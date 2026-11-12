@@ -11,6 +11,9 @@ export default function LoginPage() {
         <button type="submit" name="user" value="bob">
           Sign in as bob
         </button>
+        <button type="submit" name="user" value="dana">
+          Sign in as dana (admin)
+        </button>
       </form>
     </main>
   )

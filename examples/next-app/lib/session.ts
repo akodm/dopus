@@ -7,5 +7,8 @@ import { cookies } from 'next/headers'
  */
 export async function getSession() {
   const user = (await cookies()).get('session')?.value
-  return user ? { user } : null
+  return user ? { user, role: ADMINS.has(user) ? ('admin' as const) : ('member' as const) } : null
 }
+
+/** dana runs the shop; everyone else is a customer. */
+const ADMINS = new Set(['dana'])

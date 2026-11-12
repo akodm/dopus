@@ -28,7 +28,14 @@ Public tools (decided 2026-11-12): a tool marked `public` is also offered to use
 `identify` returning `undefined`, only public tools reach the model and the runtime layer says sign-in is needed for the
 rest; an approval for a hidden tool (signed out in another tab, then Approve) is settled as not run. Without `identify`
 dopus cannot tell, so every tool is offered and `defineAgent` warns. Visibility only: the server functions keep the
-permission checks. Hiding by role (`access: (user) => boolean`) is the same mechanism and waits for a real need.
+permission checks.
+
+Tools by role (decided 2026-11-12): `access: (user) => boolean` offers a tool only to signed-in users it allows. A
+user who may not use it must not learn it exists, so it is dropped from the request with no runtime note (unlike the
+anonymous case, where a generic sign-in note is fine). Fails closed: no `identify` or a throwing check means not
+offered. `public` and `access` together are rejected. Hook and message types are inferred from the tools
+(`ToolCallEvent<TOOLS>`, `AgentUIMessage<typeof agent>`); `defineTool`'s return uses `NoInfer` so the `tools` context
+does not turn the output type into `any`.
 MCP: possible through `@ai-sdk/mcp`, but external tools do not inherit the user's permissions; prefer wrapping the needed
 call in a server function. If added: remote HTTP servers only, an `allow` list, writes confirmed by default.
 

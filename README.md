@@ -135,16 +135,27 @@ export default defineAgent({
 
 `defineTool(fn, options)` calls `fn(input, ctx)`. If your function takes positional arguments, adapt it inline: `(input) => cancelOrder(input.orderId)`.
 
-| Option        |                                                                                                          |
-| ------------- | -------------------------------------------------------------------------------------------------------- |
-| `description` | **Required.** What the tool does. The model reads it.                                                    |
-| `usage`       | When the tool should, or should not, be used. Appended to the description.                               |
-| `input`       | **Required.** A zod schema. The model's arguments are validated before `fn` runs.                        |
-| `confirm`     | `true`, or `(input, ctx) => boolean`, to ask the user before each call. Use it for anything that writes. |
-| `output`      | `(result) => unknown`. Trims the result before the model sees it, for example to drop internal fields.   |
-| `public`      | `true` to offer the tool to users who are not signed in too. Needs `identify` (see below).               |
+| Option        |                                                                                                           |
+| ------------- | --------------------------------------------------------------------------------------------------------- |
+| `description` | **Required.** What the tool does. The model reads it.                                                     |
+| `usage`       | When the tool should, or should not, be used. Appended to the description.                                |
+| `input`       | **Required.** A zod schema. The model's arguments are validated before `fn` runs.                         |
+| `confirm`     | `true`, or `(input, ctx) => boolean`, to ask the user before each call. Use it for anything that writes.  |
+| `output`      | `(result) => unknown`. Trims the result before the model sees it, for example to drop internal fields.    |
+| `public`      | `true` to offer the tool to users who are not signed in too. Needs `identify` (see below).                |
+| `access`      | `(user) => boolean`. Offer the tool only to the signed-in users it allows, e.g. admins. Needs `identify`. |
 
 `ctx` is `{ user, toolCallId, abortSignal }`. `user` is only set when you configure `identify` (see below).
+
+Types flow from the zod schema: an inline function's `input`, and the `confirm`, `output` and `job` callbacks, are
+typed, and a schema that does not match an existing function's parameter is a type error. Outside the tool, too:
+
+- `onToolCall` in `defineAgent` is typed per tool: after `if (event.tool === 'cancelOrder')`, `event.input` and
+  `event.output` have that tool's types.
+- `AgentUIMessage<typeof agent>` is a chat message whose tool parts are typed (`part.type === 'tool-cancelOrder'`
+  narrows `part.input` and `part.output`), for saved history or custom rendering. Import the config with
+  `import type agent from '@/agent.config'`, so no server code reaches the browser. It is a type only: messages from
+  the browser or your database are not checked against it.
 
 ### Designing tools
 
@@ -226,8 +237,27 @@ defineAgent({
 })
 ```
 
-This decides what the model sees, nothing more: keep the checks in your server functions. Without `identify` dopus
-cannot tell, so every tool is offered to everyone (and `defineAgent` warns if you used `public`). Anonymous users cost
+**Tools for some roles only.** `access: (user) => boolean` offers a tool only to the signed-in users it allows. The
+`user` is what `identify` returned, so put the role there. For everyone else the tool is left out of the request
+entirely: its name and description never reach the model, and no note says something was held back, so the agent
+cannot even mention that an admin feature exists. Anonymous users never get it.
+
+```ts
+deleteUser: defineTool(deleteUser, {
+  description: 'Deletes a user account.',
+  input: z.object({ userId: z.string() }),
+  confirm: true,
+  access: (user) => user.role === 'admin',
+}),
+// identify: async () => { const s = await getSession(); return s ? { id: s.userId, role: s.role } : undefined },
+```
+
+An approval card for such a tool that is answered after the user lost the role is not run. If `access` throws, the
+tool is hidden for that request and the error goes to `onError`.
+
+Both options decide what the model sees, nothing more: keep the checks in your server functions. Without `identify`
+dopus cannot tell who is asking: tools without `access` are offered to everyone, tools with `access` to no one, and
+`defineAgent` warns about either option. Anonymous users cost
 model tokens too; rate-limit them in `beforeRequest` (see [Audit log, usage and rate limits](#audit-log-usage-and-rate-limits)).
 
 **Running tools outside the request.** Background jobs and queues lose the request's cookies. For that case, define `identify(request)` to resolve a serialisable user. Tools then receive it as `ctx.user` and can pass it on explicitly. dopus itself always runs tools inside the request; this is for jobs your tools hand off.

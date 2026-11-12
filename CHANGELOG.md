@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Tools for some roles only: `defineTool(fn, { ..., access: (user) => user.role === 'admin' })`. The tool is offered
+  only to signed-in users `access` allows; for everyone else it is left out entirely (name, description, and no
+  note that something was held back), so the agent cannot mention it. Anonymous users never get it; without
+  `identify` it is never offered. An approval answered after the user lost access is not run; a throwing `access`
+  hides the tool and goes to `onError`. A tool cannot be both `public` and limited by `access`.
+- Types: `onToolCall` in `defineAgent` is typed per tool (`event.tool === 'cancelOrder'` narrows `input` and
+  `output`), and `AgentUIMessage<typeof agent>` types the tool parts of chat messages for app code (saved history,
+  custom rendering). Also exported: `ToolInput`, `ToolOutput`, `InferAgentUITools`. A tool's output type follows
+  its `output` option.
+- `onToolCall` no longer reports a declined call for a tool the user may not use (the browser could name any tool).
+- Example app: dana is the shop admin and gets `listAllOrders` (`access`); the live check covers it.
+
 ## 0.2.12 — 2026-11-12
 
 0.2.11 was tagged but never published (the release run could not install its test browser during an Ubuntu

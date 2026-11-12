@@ -18,7 +18,14 @@ import {
 import { isJobId, JOB_PART, jobNotice, withJob } from './job.js'
 import { ToolError, translateNextError } from './next-errors.js'
 import { buildInstructions, type PromptLayers, type RuntimeContext } from './prompt.js'
-import { type AgentUser, type DopusToolSet, isDopusTool, toolDescription } from './tool.js'
+import {
+  type AgentUser,
+  type DopusToolSet,
+  isDopusTool,
+  type ToolInput,
+  type ToolOutput,
+  toolDescription,
+} from './tool.js'
 
 type StreamTextOptions = Parameters<typeof streamText>[0]
 
@@ -50,7 +57,7 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
     messages: UIMessage[]
   }) => Response | undefined | Promise<Response | undefined>
   /** Called once per tool call: ran (`success` / `error`) or declined by the user (`denied`). For audit logs. */
-  onToolCall?: (event: ToolCallEvent) => void | Promise<void>
+  onToolCall?(event: ToolCallEvent<TOOLS>): void | Promise<void>
   /**
    * Called once per request when the reply is finished: tokens, steps, model (usage tracking), and the conversation
    * (to save chat history in your database: `user`, `conversationId`, `newMessages`).
@@ -89,20 +96,36 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
   keepAlive?: number | false
 }
 
-export interface ToolCallEvent {
-  tool: string
+interface ToolCallEventBase {
   toolCallId: string
-  input: unknown
   /** From `identify`; `undefined` if you did not define it. */
   user: AgentUser | undefined
   outcome: 'success' | 'error' | 'denied'
-  /** The tool's return value (`success`). */
-  output?: unknown
   /** The original error message (`error`). Server-side only: the model and the browser see a safe message. */
   error?: string
   /** Execution time (`success` / `error`). */
   durationMs?: number
 }
+
+/**
+ * One tool call, for audit logs. In `defineAgent` it is typed per tool: checking `event.tool === 'cancelOrder'`
+ * narrows `input` and `output` to that tool's types.
+ */
+export type ToolCallEvent<TOOLS extends DopusToolSet = DopusToolSet> = string extends keyof TOOLS
+  ? ToolCallEventBase & {
+      tool: string
+      input: unknown
+      /** The tool's return value, after `output` (`success`). */
+      output?: unknown
+    }
+  : {
+      [NAME in keyof TOOLS & string]: ToolCallEventBase & {
+        tool: NAME
+        input: ToolInput<TOOLS[NAME]>
+        /** The tool's return value, after `output` (`success`). */
+        output?: ToolOutput<TOOLS[NAME]>
+      }
+    }[keyof TOOLS & string]
 
 export interface FinishEvent {
   user: AgentUser | undefined
@@ -206,22 +229,41 @@ export function defineAgent<TOOLS extends DopusToolSet>(
       '[dopus] `public` tools need `identify` in defineAgent: without it dopus cannot tell who is signed in, so every tool is offered to everyone.',
     )
   }
+  if (!config.identify && Object.values(config.tools).some((t) => t.options.access)) {
+    console.warn(
+      '[dopus] tools with `access` need `identify` in defineAgent: without it there is no user to check, so they are never offered.',
+    )
+  }
   return config
 }
 
 /**
- * The tools this request may use: all of them for a signed-in user, only `public` ones for an anonymous user.
- * Without `identify` dopus cannot tell who is signed in, so every tool is offered (the server functions decide).
+ * The tools this request may use. A signed-in user gets every tool whose `access` allows them; an anonymous user only
+ * `public` ones. Without `identify` dopus cannot tell who is signed in: every tool without `access` is offered (the
+ * server functions decide), tools with `access` never are. A failing `access` check hides the tool.
  */
-export function visibleTools(
+export async function visibleTools(
   config: Pick<AgentConfig, 'tools' | 'identify'>,
   user: AgentUser | undefined,
+  report?: (error: unknown) => void,
 ) {
-  if (!config.identify || user) return { tools: config.tools, hidden: [] as string[] }
   const tools: DopusToolSet = {}
   const hidden: string[] = []
   for (const [name, t] of Object.entries(config.tools)) {
-    if (t.options.public) tools[name] = t
+    const { access } = t.options
+    let allowed: boolean
+    if (!config.identify) allowed = !access
+    else if (!user) allowed = Boolean(t.options.public)
+    else if (!access) allowed = true
+    else {
+      try {
+        allowed = (await access(user)) === true
+      } catch (error) {
+        report?.(error)
+        allowed = false
+      }
+    }
+    if (allowed) tools[name] = t
     else hidden.push(name)
   }
   return { tools, hidden }
@@ -230,7 +272,8 @@ export function visibleTools(
 interface BuildContext {
   user: AgentUser | undefined
   report?: (error: unknown) => void
-  onToolCall?: (event: ToolCallEvent) => void | Promise<void>
+  // biome-ignore lint/suspicious/noExplicitAny: buildTools reports calls of any tool in the set
+  onToolCall?: (event: ToolCallEvent<any>) => void | Promise<void>
 }
 
 /** Runs a user hook; a failing hook is reported but never breaks the chat. */
@@ -343,6 +386,9 @@ export function readClientContext(body: unknown, request: Request): ClientContex
 export const SIGN_IN_REASON =
   'Not run: this needs the user to be signed in, and they are not (anymore). Tell them to sign in first.'
 
+/** Reason recorded for a confirmation of a tool the signed-in user may not use (anymore). */
+export const NO_ACCESS_REASON = 'Not run: the user does not have access to this.'
+
 /** Runtime prompt line for anonymous users when some tools are hidden from them. */
 export const SIGNED_OUT_NOTE =
   'Not signed in. Only features that work without an account are available; if the user asks for something else, tell them to sign in first.'
@@ -362,8 +408,10 @@ type Part = UIMessage['parts'][number]
  */
 export function settleStaleApprovals(
   messages: UIMessage[],
-  /** Tools this request may not use (sign-in needed): their open or approved cards are never run either. */
+  /** Tools this request may not use: their open or approved cards are never run either. */
   hidden: readonly string[] = [],
+  /** Recorded for those cards: sign-in needed, or no access. */
+  hiddenReason = SIGN_IN_REASON,
 ): UIMessage[] {
   const last = messages.length - 1
   return messages.map((message, index) => {
@@ -387,7 +435,7 @@ export function settleStaleApprovals(
             reason: declined
               ? part.approval.reason
               : index === last
-                ? SIGN_IN_REASON
+                ? hiddenReason
                 : NOT_RUN_REASON,
           },
         } as Part
@@ -420,7 +468,12 @@ const TIME_UP = `Time for this request is almost up. Do not call any more tools.
  *
  * Tools execute inside this request, so server functions they call see the caller's cookies.
  */
-export function createAgentHandler(config: AgentConfig, options: HandlerOptions = {}) {
+export function createAgentHandler<TOOLS extends DopusToolSet>(
+  typedConfig: AgentConfig<TOOLS>,
+  options: HandlerOptions = {},
+) {
+  // Tool types matter to the app's hooks, not in here.
+  const config = typedConfig as unknown as AgentConfig
   const maxSteps = config.maxSteps ?? 10
   const report = config.onError ?? ((error: unknown) => console.error('[dopus]', error))
 
@@ -446,7 +499,7 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
     }
 
     const user = await config.identify?.(request)
-    const visible = visibleTools(config, user)
+    const visible = await visibleTools(config, user, report)
     const { tools, toolApproval } = buildTools(visible.tools, {
       user,
       report,
@@ -459,7 +512,11 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
     if (!validated.success) {
       return errorResponse(400, 'Invalid messages')
     }
-    const messages = settleStaleApprovals(validated.data, visible.hidden)
+    const messages = settleStaleApprovals(
+      validated.data,
+      visible.hidden,
+      user ? NO_ACCESS_REASON : SIGN_IN_REASON,
+    )
     const tooLong = messages.some(
       (message) =>
         message.role === 'user' &&
@@ -477,14 +534,16 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
     const early = await config.beforeRequest?.({ request, user, messages })
     if (early instanceof Response) return early
 
-    // Approvals the user declined arrive with this request; the tool never runs, so log them here.
+    // Approvals the user declined arrive with this request; the tool never runs, so log them here
+    // (only for tools this user may use: the browser could name any tool).
     for (const part of messages.at(-1)?.role === 'assistant'
       ? (messages.at(-1)?.parts ?? [])
       : []) {
       if (!isToolUIPart(part) || part.state !== 'approval-responded' || part.approval.approved)
         continue
+      if (!Object.hasOwn(visible.tools, getToolName(part))) continue
       await runHook(
-        config.onToolCall,
+        (event: ToolCallEvent) => config.onToolCall?.(event),
         {
           tool: getToolName(part),
           toolCallId: part.toolCallId,
@@ -499,7 +558,8 @@ export function createAgentHandler(config: AgentConfig, options: HandlerOptions 
     const client = readClientContext(body, request)
     const runtime = {
       ...client,
-      ...(visible.hidden.length > 0 ? { access: SIGNED_OUT_NOTE } : {}),
+      // Anonymous only: a signed-in user is never told that tools were held back.
+      ...(!user && visible.hidden.length > 0 ? { access: SIGNED_OUT_NOTE } : {}),
       ...(await config.runtime?.(request, { user, client })),
     }
     const approvalSecret = config.approvalSecret ?? process.env.DOPUS_APPROVAL_SECRET

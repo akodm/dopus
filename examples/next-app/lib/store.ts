@@ -24,5 +24,6 @@ const orders = g.__orders
 
 export const store = {
   ordersOf: (owner: string) => orders.filter((order) => order.owner === owner),
+  all: () => orders,
   find: (id: string) => orders.find((order) => order.id === id),
 }

@@ -17,6 +17,15 @@ export async function listMyOrders() {
   return store.ordersOf(session.user)
 }
 
+/** Admin page: every customer's orders. */
+export async function listAllOrders() {
+  const session = await getSession()
+  if (!session) redirect('/login')
+  // The real permission check. The agent's `access` option only hides the tool from non-admins.
+  if (session.role !== 'admin') throw new Error('Forbidden')
+  return store.all()
+}
+
 export async function cancelOrder(orderId: string) {
   const session = await getSession()
   if (!session) redirect('/login')
