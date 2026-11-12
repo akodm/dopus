@@ -5,6 +5,7 @@ import app, { locales } from './agent/prompts/app'
 import preset from './agent/prompts/preset'
 import { getExport, startExport } from './app/actions/exports'
 import { cancelOrder, getCurrentUser, listAllOrders, listMyOrders } from './app/actions/orders'
+import { chatDb } from './lib/chat-db'
 import { mockModel } from './lib/mock-model'
 import { getSession } from './lib/session'
 
@@ -61,5 +62,11 @@ export default defineAgent({
   // The role goes in the per-request layer, never in the shared prompt: describing admin features there would tell
   // every user they exist.
   runtime: (_request, { user }) => (user ? { role: String(user.role) } : undefined),
+  // With DATABASE_URL, chat history is saved here, where the user is known (lib/chat-db.ts).
+  onFinish: chatDb
+    ? async ({ user, conversationId, newMessages }) => {
+        if (user) await chatDb?.save(String(user.id), conversationId, newMessages)
+      }
+    : undefined,
   prompt: { preset, app, locales },
 })

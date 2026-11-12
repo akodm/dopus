@@ -580,6 +580,10 @@ describe('hooks', () => {
       await readChunks(await POST(chatRequest([u1, a1, u2])))
       expect(event(1).conversationId).toBe('u1')
       expect(event(1).newMessages.map((m) => m.id)).toEqual(['u2', expect.any(String)])
+      // Each reply has its own id, the same one the browser got, so a database can upsert by it.
+      expect(a1.id).not.toBe('')
+      expect(event(1).newMessages[1]?.id).not.toBe('')
+      expect(event(1).newMessages[1]?.id).not.toBe(a1.id)
       expect(event(1).newMessages[1]?.parts).toContainEqual(
         expect.objectContaining({ type: 'text', text: 'Second.' }),
       )

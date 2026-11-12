@@ -2,10 +2,15 @@
 
 ## Unreleased
 
+- Fix: `onFinish` gave a new reply the id `''` (only a reply continued after an approval had an id), so saving
+  `newMessages` by id, as the README shows, put every reply of a user on one row. Replies now get an id, the same
+  one the browser has. Found by the example's new tests against a real Postgres.
 - An approval the server does not run because the user signed out or lost access (in another tab) now closes the
   card in the browser too. It used to stay "Approved" as if about to run; the chat UI shows it as "Not run".
 - README: how several tabs of the same user behave. The example app has browser tests for it (own conversation per
   tab, sign-out or another sign-in in another tab, the same card approved twice, jobs followed up in one tab only).
+- Example app: chat history in Postgres when `DATABASE_URL` is set (`db/schema.sql`, `lib/chat-db.ts`), with browser
+  tests against a real database (`test:ui:db`, local only).
 
 ## 0.2.13 — 2026-11-12
 

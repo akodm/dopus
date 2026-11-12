@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { closeChat, loadChat } from '@/app/actions/chat'
 import {
   type AgentChannel,
   type AgentChatHistory,
@@ -26,7 +27,21 @@ const sessionHistory = (key: string): AgentChatHistory => ({
   save: (messages) => sessionStorage.setItem(key, JSON.stringify(messages)),
 })
 
-export function Agent({ user, ...props }: AgentChatProps & { user: string | null }) {
-  const history = useMemo(() => (user ? sessionHistory(`dopus-chat:${user}`) : undefined), [user])
+/** In the database (DATABASE_URL): the agent's onFinish saves, this loads, and "New chat" closes the conversation. */
+const serverHistory: AgentChatHistory = {
+  load: () => loadChat(),
+  save: (messages) => (messages.length === 0 ? closeChat() : undefined),
+}
+
+export function Agent({
+  user,
+  savedOnServer,
+  ...props
+}: AgentChatProps & { user: string | null; savedOnServer?: boolean }) {
+  const history = useMemo(
+    () =>
+      !user ? undefined : savedOnServer ? serverHistory : sessionHistory(`dopus-chat:${user}`),
+    [user, savedOnServer],
+  )
   return <AgentWidget {...props} channel={channel} history={history} />
 }

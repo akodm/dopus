@@ -1,6 +1,7 @@
 import {
   convertToModelMessages,
   createUIMessageStreamResponse,
+  generateId,
   getToolName,
   isStepCount,
   isToolUIPart,
@@ -680,6 +681,8 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
           stream: result.stream,
           tools,
           originalMessages: messages,
+          // Without it a new reply has no id on the server (onFinish gave ''), so saved replies collided.
+          generateMessageId: generateId,
           onEnd: async ({ messages: final, responseMessage, isAborted }) => {
             if (isAborted) return
             const last = messages.at(-1)

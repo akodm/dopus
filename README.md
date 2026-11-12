@@ -347,6 +347,12 @@ onFinish: async ({ user, conversationId, newMessages }) => {
 - **Stopped or failed turns** do not reach `onFinish`. To keep the user's message anyway, save it in `beforeRequest`
   (it gets `user` and `messages`).
 
+The example app does this with Postgres when `DATABASE_URL` is set: tables in `examples/next-app/db/schema.sql`, queries
+in `lib/chat-db.ts`, `loadChat` / `closeChat` server actions for the widget. Its browser tests run against a real
+database (`DOPUS_TEST_DATABASE_URL=... pnpm --filter next-app test:ui:db`): saved and loaded in a new tab, one row per
+reply after an approval, nothing loaded for another user, another user's message ids cannot overwrite rows, "New chat"
+starts over. Unlike sessionStorage, every tab of the user then shows the same conversation.
+
 Things to know:
 
 - **Tool results are stored too.** Whatever your tools returned (orders, names) is in the saved conversation. Keep it

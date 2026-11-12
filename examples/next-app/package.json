@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test:e2e": "vitest run",
     "test:live": "node test/live-llm.ts",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "test:ui:db": "playwright test -c playwright.db.config.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.99",
@@ -17,6 +18,7 @@
     "ai": "7.0.166",
     "dopus": "workspace:*",
     "next": "16.4.6",
+    "pg": "8.23.1",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-markdown": "10.1.0",
@@ -28,6 +30,7 @@
     "@opennextjs/aws": "^4.1.15",
     "@playwright/test": "1.64.1",
     "@types/node": "^24.0.0",
+    "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "typescript": "6.0.3",

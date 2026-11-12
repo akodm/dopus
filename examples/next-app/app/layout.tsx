@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { chatDb } from '@/lib/chat-db'
 import { getSession } from '@/lib/session'
 import { Agent } from '../components/agent/agent'
 
@@ -13,6 +14,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <Agent
           key={session?.user ?? 'anonymous'}
           user={session?.user ?? null}
+          savedOnServer={Boolean(chatDb)}
           suggestions={['Who am I?', 'List my orders', 'Cancel o-1']}
         />
       </body>
