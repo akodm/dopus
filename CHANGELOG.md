@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.13 — 2026-11-12
 
 - Tools for some roles only: `defineTool(fn, { ..., access: (user) => user.role === 'admin' })`. The tool is offered
   only to signed-in users `access` allows; for everyone else it is left out entirely (name, description, and no
