@@ -207,9 +207,10 @@ function ToolCall({
         </div>
       )
     case 'output-denied':
+      // Approved but closed by the server without running (signed out or no access in the meantime).
       return (
         <div className="dopus-tool" data-state="declined">
-          {labels.declined}: {name}
+          {part.approval?.approved ? labels.notRun : labels.declined}: {name}
         </div>
       )
     default:

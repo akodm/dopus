@@ -884,6 +884,14 @@ describe('public tools (users who are not signed in)', () => {
     const chunks = await readChunks(await POST(chatRequest([first, asked])))
     expect(cancelOrder).not.toHaveBeenCalled()
     expect(chunks.some((c) => c.type === 'error')).toBe(false)
+    // The browser's card is closed too, instead of staying "Approved" forever.
+    expect(chunks).toContainEqual({
+      type: 'tool-output-denied',
+      toolCallId: (part as unknown as { toolCallId: string }).toolCallId,
+    })
+    expect(chunks.findIndex((c) => c.type === 'tool-output-denied')).toBeGreaterThan(
+      chunks.findIndex((c) => c.type === 'start'),
+    )
     expect(chunks).toContainEqual(
       expect.objectContaining({ type: 'text-delta', delta: 'Please sign in.' }),
     )
@@ -1006,6 +1014,10 @@ describe('tools limited by access (roles)', () => {
     const chunks = await readChunks(await POST(chatRequest([first, asked], as('member'))))
     expect(deleteUser).not.toHaveBeenCalled()
     expect(chunks.some((c) => c.type === 'error')).toBe(false)
+    expect(chunks).toContainEqual({
+      type: 'tool-output-denied',
+      toolCallId: (part as unknown as { toolCallId: string }).toolCallId,
+    })
     expect(prompt(1)).toContain('the user does not have access to this')
     expect(onError).not.toHaveBeenCalled()
   })

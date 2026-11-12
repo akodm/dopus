@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- An approval the server does not run because the user signed out or lost access (in another tab) now closes the
+  card in the browser too. It used to stay "Approved" as if about to run; the chat UI shows it as "Not run".
+- README: how several tabs of the same user behave. The example app has browser tests for it (own conversation per
+  tab, sign-out or another sign-in in another tab, the same card approved twice, jobs followed up in one tab only).
+
 ## 0.2.13 — 2026-11-12
 
 - Tools for some roles only: `defineTool(fn, { ..., access: (user) => user.role === 'admin' })`. The tool is offered

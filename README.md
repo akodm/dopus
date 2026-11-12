@@ -356,6 +356,18 @@ Things to know:
 - **Background jobs across a reload.** A job that finishes while the page is reloading is not announced again, so its
   "working in the background" line stays. The user can ask, and the agent reads the result with your status tool.
 
+Several tabs of the same user (checked in the browser, `examples/next-app/test/ui/tabs.spec.ts`):
+
+- **Each tab has its own conversation** with sessionStorage. A background job is followed up only in the tab whose
+  chat started it, even though every tab of the user hears it on the channel.
+- **Signed out, or lost the role, in another tab**: an Approve pressed afterwards is not run, and the card shows
+  "Not run".
+- **Another user signed in from another tab**: the browser now sends that user's cookie, so the approved tool runs
+  with their permissions, and your server function's own checks decide. The page then switches to their chat.
+- **The same card approved twice** (a duplicated tab copies sessionStorage): approvals are signed but not one-time,
+  so the second one reaches your server function again. Check the current state there ("already cancelled") rather
+  than relying on the card.
+
 Styling is one plain CSS file (`agent-chat.css`) whose classes all start with `dopus-`, themed through `--dopus-*` variables, with dark mode included. It is deliberately not a CSS Module: create-next-app's Tailwind setup routes every `*.css` file, modules included, through its own Turbopack loader, which left module classes unstyled. It needs no Tailwind and no component library. The file is yours, so restyle it or swap in your own components.
 
 ## Configuration

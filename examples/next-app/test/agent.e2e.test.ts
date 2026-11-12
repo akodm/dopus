@@ -50,7 +50,7 @@ describe('tools inherit the requesting user (next start)', () => {
 
     const admin = await chat(server.url, [user('list all orders')], 'session=dana')
     const orders = toolPart(admin.assistant).output as { owner: string }[]
-    expect(new Set(orders.map((o) => o.owner))).toEqual(new Set(['alice', 'bob', 'carol']))
+    expect(new Set(orders.map((o) => o.owner))).toEqual(new Set(['alice', 'bob', 'carol', 'erin']))
   })
 })
 

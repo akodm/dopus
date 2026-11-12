@@ -14,6 +14,10 @@ const seed = (): Order[] => [
   { id: 'o-4', owner: 'carol', item: 'Mouse', status: 'open' },
   { id: 'o-5', owner: 'carol', item: 'Webcam', status: 'open' },
   { id: 'o-6', owner: 'carol', item: 'Headset', status: 'open' },
+  // Used by the several-tabs browser tests (test/ui/tabs.spec.ts).
+  { id: 'o-7', owner: 'erin', item: 'Charger', status: 'open' },
+  { id: 'o-8', owner: 'erin', item: 'Cable', status: 'open' },
+  { id: 'o-9', owner: 'erin', item: 'Stand', status: 'open' },
 ]
 
 // On globalThis: a production build can load this module once for the pages and again for the agent route,

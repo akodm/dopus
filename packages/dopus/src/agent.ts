@@ -14,6 +14,7 @@ import {
   tool,
   toUIMessageStream,
   type UIMessage,
+  type UIMessageChunk,
 } from 'ai'
 import { isJobId, JOB_PART, jobNotice, withJob } from './job.js'
 import { ToolError, translateNextError } from './next-errors.js'
@@ -444,6 +445,51 @@ export function settleStaleApprovals(
   })
 }
 
+/** Tool calls of the last message whose card settleStaleApprovals closed here (the tool is hidden from this user). */
+function closedInLastMessage(before: UIMessage[], after: UIMessage[]): string[] {
+  const was = before.at(-1)
+  const now = after.at(-1)
+  if (!was || !now || was.role !== 'assistant') return []
+  return now.parts.flatMap((part, index) => {
+    const old = was.parts[index]
+    return isToolUIPart(part) &&
+      part.state === 'output-denied' &&
+      old &&
+      isToolUIPart(old) &&
+      old.state !== 'output-denied'
+      ? [part.toolCallId]
+      : []
+  })
+}
+
+/**
+ * The browser still shows those cards as approved (or open). Close them in its copy of the conversation as well,
+ * right after the stream's start, so they do not look like they are about to run.
+ */
+function withClosedCards(
+  stream: ReadableStream<UIMessageChunk>,
+  toolCallIds: string[],
+): ReadableStream<UIMessageChunk> {
+  if (toolCallIds.length === 0) return stream
+  let sent = false
+  const send = (controller: TransformStreamDefaultController<UIMessageChunk>) => {
+    sent = true
+    for (const toolCallId of toolCallIds)
+      controller.enqueue({ type: 'tool-output-denied', toolCallId })
+  }
+  return stream.pipeThrough(
+    new TransformStream<UIMessageChunk, UIMessageChunk>({
+      transform(chunk, controller) {
+        if (!sent && chunk.type !== 'start') send(controller)
+        controller.enqueue(chunk)
+      },
+      flush(controller) {
+        if (!sent) send(controller)
+      },
+    }),
+  )
+}
+
 const JSON_HEADERS = { 'content-type': 'application/json' }
 
 function errorResponse(status: number, message: string) {
@@ -629,28 +675,31 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
     })
 
     const response = createUIMessageStreamResponse({
-      stream: toUIMessageStream({
-        stream: result.stream,
-        tools,
-        originalMessages: messages,
-        onEnd: async ({ messages: final, responseMessage, isAborted }) => {
-          if (isAborted) return
-          const last = messages.at(-1)
-          finish.conversation = {
-            conversationId: messages[0]?.id ?? responseMessage.id,
-            newMessages: last?.role === 'user' ? [last, responseMessage] : [responseMessage],
-            messages: final,
-          }
-          await finish.emit()
-        },
-        // A ToolError is already safe for the model, so the client may keep it too: the chat history it
-        // sends back must carry the same text, or the model loses why an earlier call failed.
-        onError: (error) => {
-          if (error instanceof ToolError) return error.message
-          report(error)
-          return 'Something went wrong. Please try again.'
-        },
-      }),
+      stream: withClosedCards(
+        toUIMessageStream({
+          stream: result.stream,
+          tools,
+          originalMessages: messages,
+          onEnd: async ({ messages: final, responseMessage, isAborted }) => {
+            if (isAborted) return
+            const last = messages.at(-1)
+            finish.conversation = {
+              conversationId: messages[0]?.id ?? responseMessage.id,
+              newMessages: last?.role === 'user' ? [last, responseMessage] : [responseMessage],
+              messages: final,
+            }
+            await finish.emit()
+          },
+          // A ToolError is already safe for the model, so the client may keep it too: the chat history it
+          // sends back must carry the same text, or the model loses why an earlier call failed.
+          onError: (error) => {
+            if (error instanceof ToolError) return error.message
+            report(error)
+            return 'Something went wrong. Please try again.'
+          },
+        }),
+        closedInLastMessage(validated.data, messages),
+      ),
     })
     return config.keepAlive === false
       ? response
