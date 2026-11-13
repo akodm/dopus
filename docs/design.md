@@ -109,6 +109,11 @@ export const POST = createAgentHandler(agent)
   tool states, approve/decline card, stop/retry, suggestions, IME-safe Enter, `--dopus-*` CSS variables, dark mode.
   No Tailwind or component library needed.
 
+Update 2026-11-13: the chat UI itself moved into the package (`dopus/react`, with `dopus/plugins` for `toolLog`,
+`approvals` and `attachments`), and `agent-chat.tsx` became a thin wrapper that picks plugins, so UI fixes arrive with
+npm and customisation is CSS, labels, plugin options and custom plugins. See
+[the spec](superpowers/specs/2026-11-13-plugins-design.md).
+
 Prompts are `.ts` modules (template strings), not `.md` read from disk, so they bundle on every runtime (Node, edge, serverless)
 without file tracing.
 
