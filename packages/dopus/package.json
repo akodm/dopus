@@ -46,10 +46,18 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./plugins": {
+      "types": "./dist/plugins.d.ts",
+      "import": "./dist/plugins.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown && node scripts/check-build.mjs",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.templates.json",
     "test": "vitest run",
@@ -59,7 +67,13 @@
     "@clack/prompts": "1.9.0"
   },
   "peerDependencies": {
+    "@ai-sdk/react": "^4",
     "ai": "^7.0.0",
+    "next": "^16",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-markdown": "^10",
+    "remark-gfm": "^4",
     "zod": "^4.1.8"
   },
   "devDependencies": {
@@ -70,14 +84,36 @@
     "@ai-sdk/react": "4.0.170",
     "@types/node": "^24.0.0",
     "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "ai": "7.0.166",
     "next": "16.4.6",
     "react": "19.3.1",
+    "react-dom": "19.3.1",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
     "tsdown": "0.23.7",
     "typescript": "6.0.3",
     "vitest": "5.1.0",
     "zod": "4.6.7"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "@ai-sdk/react": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    },
+    "react-markdown": {
+      "optional": true
+    },
+    "remark-gfm": {
+      "optional": true
+    }
   }
 }
