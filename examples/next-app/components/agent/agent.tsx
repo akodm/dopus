@@ -1,7 +1,7 @@
 'use client'
 
 import { approvals, attachments, toolLog } from 'dopus/plugins'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { closeChat, loadChat } from '@/app/actions/chat'
 import {
   type AgentChannel,
@@ -54,8 +54,9 @@ export function Agent({
     [user, savedOnServer],
   )
   // The template's plugins (agent-chat.tsx) plus attachments, which need the app's upload. Passing `plugins` here
-  // replaces the template's list, so agent-chat.tsx stays identical to what `dopus init` copies. Created per mount,
-  // not at module scope: the layout remounts Agent per user (`key`), so files picked but not sent stay with that user.
-  const plugins = useMemo(() => [toolLog(), approvals(), attachments({ upload })], [])
+  // replaces the template's list, so agent-chat.tsx stays identical to what `dopus init` copies. Created once per
+  // mount (lazy useState), not at module scope: the layout remounts Agent per user (`key`), so files picked but not
+  // sent stay with that user.
+  const [plugins] = useState(() => [toolLog(), approvals(), attachments({ upload })])
   return <AgentWidget {...props} plugins={plugins} channel={channel} history={history} />
 }

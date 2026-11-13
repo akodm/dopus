@@ -10,9 +10,9 @@ export type { AgentChannel, AgentChatHistory, AgentChatLabels, AgentChatProps } 
 const plugins = [toolLog(), approvals()]
 
 export function AgentChat(props: AgentChatProps) {
-  return <Chat plugins={plugins} {...props} />
+  return <Chat {...props} plugins={props.plugins ?? plugins} />
 }
 
 export function AgentWidget(props: AgentChatProps) {
-  return <Widget plugins={plugins} {...props} />
+  return <Widget {...props} plugins={props.plugins ?? plugins} />
 }

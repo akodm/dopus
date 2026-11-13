@@ -54,6 +54,50 @@ test('a file over 20 MB is refused on its chip and never uploaded', async ({ pag
   expect(uploads).toEqual([])
 })
 
+test('a chip with a long name gets its own row and leaves the input and Send in the panel', async ({
+  page,
+  baseURL,
+}) => {
+  await openChat(page, baseURL)
+  const name = 'quarterly_sales_report_2026_final_v2_with_every_regional_breakdown_and_notes.xlsx'
+  await fileInput(page).setInputFiles({
+    name,
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: Buffer.from('a,b\n1,2\n'),
+  })
+  const chip = chat(page).locator('.dopus-attachment', { hasText: 'quarterly_sales_report' })
+  await expect(chip).toHaveAttribute('data-status', 'done')
+  const box = async (locator: ReturnType<Page['locator']>) => {
+    const found = await locator.boundingBox()
+    if (!found) throw new Error('not rendered')
+    return found
+  }
+  const inside = (
+    inner: { x: number; y: number; width: number; height: number },
+    outer: typeof inner,
+  ) =>
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.width <= outer.x + outer.width &&
+    inner.y + inner.height <= outer.y + outer.height
+  const panel = await box(chat(page))
+  const send = await box(chat(page).getByRole('button', { name: 'Send' }))
+  const input = await box(chat(page).getByRole('textbox', { name: 'Ask anything…' }))
+  const chipBox = await box(chip)
+  expect(inside(send, panel)).toBe(true)
+  expect(inside(chipBox, panel)).toBe(true)
+  expect(input.width).toBeGreaterThanOrEqual(120)
+  // The chips sit above the input, not beside it.
+  expect(chipBox.y + chipBox.height).toBeLessThanOrEqual(input.y)
+  // The long name is cut with an ellipsis; the full name stays in the title.
+  const cut = await chip
+    .locator('.dopus-attachment-name')
+    .evaluate((el) => el.scrollWidth > el.clientWidth)
+  expect(cut).toBe(true)
+  await expect(chip).toHaveAttribute('title', name)
+  await expect(chip.locator('[aria-live="polite"]')).toHaveCount(1)
+})
+
 test("another user's fileId is not found", async ({ request }) => {
   const upload = await request.post('/api/files', {
     headers: { cookie: 'session=gina' },

@@ -251,10 +251,12 @@
 }
 
 /* 6. Composer
- * .dopus-form (the row under the messages), .dopus-input (textarea). The send/stop button is .dopus-primary.
+ * .dopus-form (the row under the messages; it wraps, so a plugin can put a full-width row above the input),
+ * .dopus-input (textarea). The send/stop button is .dopus-primary.
  */
 .dopus-form {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 12px;
   border-top: 1px solid var(--dopus-border);
@@ -262,6 +264,7 @@
 
 .dopus-input {
   flex: 1;
+  min-width: 0;
   resize: none;
   border: 1px solid var(--dopus-border);
   border-radius: 8px;
@@ -426,7 +429,8 @@
 }
 
 /* 11. Plugin: attachments
- * .dopus-attach (attach button), .dopus-attachments (chip list), .dopus-attachment ([data-status="uploading"|"error"]),
+ * .dopus-attach (attach button), .dopus-attachments (chip list, on its own row above the input),
+ * .dopus-attachment ([data-status="uploading"|"error"]), .dopus-attachment-name (cut with … when long),
  * .dopus-attachment-remove (x on a chip). Sent files are .dopus-file (section 4).
  */
 .dopus-attach {
@@ -440,6 +444,9 @@
 }
 
 .dopus-attachments {
+  order: -1;
+  flex-basis: 100%;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
@@ -452,12 +459,20 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   max-width: 100%;
   padding: 4px 8px;
   border: 1px solid var(--dopus-border);
   border-radius: 8px;
   background: var(--dopus-surface);
   font-size: 13px;
+}
+
+.dopus-attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dopus-attachment[data-status="uploading"] {

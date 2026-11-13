@@ -228,8 +228,9 @@ function AttachmentComposer({
               data-status={entry.status}
               title={entry.file.name}
             >
-              <span>{entry.file.name}</span>{' '}
-              <span>
+              <span className="dopus-attachment-name">{entry.file.name}</span>{' '}
+              {/* Announced when it changes, so a failed upload is heard, not only seen. */}
+              <span aria-live="polite">
                 {entry.status === 'uploading'
                   ? labels.uploading
                   : entry.status === 'error'
