@@ -43,7 +43,7 @@ const calls = (toolName: string, inputs: object[]) =>
  * "who" → getCurrentUser, "orders" → listMyOrders, "cancel <id> [<id>...]" → cancelOrder (one call per id,
  * in one step), "export" → startExport, the app's finished-job notice → getExport.
  * After a tool result it replies with `result: <json>` so tests can read what the tool returned.
- * "all orders" → listAllOrders (admin only).
+ * "all orders" → listAllOrders (admin only). An attached file (the server's notice with `fileId "<id>"`) → describeFile.
  * A tool that is not offered (anonymous user and not `public`, or `access` says no) gets "Not offered: <tool>."
  * instead of a call.
  */
@@ -64,6 +64,8 @@ export function mockModel() {
           : ''
       const finished = /Background job (\S+) has finished/.exec(userText)
       if (finished?.[1]) return call('getExport', { jobId: finished[1] })
+      const file = /fileId ("(?:[^"\\]|\\.)*")/.exec(userText)
+      if (file?.[1]) return call('describeFile', { fileId: JSON.parse(file[1]) })
       const cancel = /cancel\s+(.+)/i.exec(userText)
       const ids = cancel?.[1]?.match(/\S+/g) ?? []
       if (ids.length > 0 && !offered.has('cancelOrder')) return text('Not offered: cancelOrder.')

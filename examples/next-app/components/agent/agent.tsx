@@ -1,5 +1,6 @@
 'use client'
 
+import { approvals, attachments, toolLog } from 'dopus/plugins'
 import { useMemo } from 'react'
 import { closeChat, loadChat } from '@/app/actions/chat'
 import {
@@ -17,6 +18,21 @@ const channel: AgentChannel = {
     return () => events.close()
   },
 }
+
+/** The app's own storage for attached files (app/api/files); the message carries only the returned ID. */
+async function upload(file: File, { signal }: { signal: AbortSignal }) {
+  const body = new FormData()
+  body.append('file', file)
+  const response = await fetch('/api/files', { method: 'POST', body, signal })
+  if (!response.ok) throw new Error(`Upload failed: ${response.status}`)
+  return response.json()
+}
+
+/**
+ * The template's plugins (agent-chat.tsx) plus attachments, which need the app's upload. Passing `plugins` here
+ * replaces the template's list, so agent-chat.tsx stays identical to what `dopus init` copies.
+ */
+const plugins = [toolLog(), approvals(), attachments({ upload })]
 
 /**
  * The conversation survives reloads in this tab. Keyed by user, so after a sign-out another user in the same tab
@@ -43,5 +59,5 @@ export function Agent({
       !user ? undefined : savedOnServer ? serverHistory : sessionHistory(`dopus-chat:${user}`),
     [user, savedOnServer],
   )
-  return <AgentWidget {...props} channel={channel} history={history} />
+  return <AgentWidget {...props} plugins={plugins} channel={channel} history={history} />
 }
