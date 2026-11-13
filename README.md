@@ -186,6 +186,11 @@ Retrieval is a tool. Write a server function that searches your vector store and
 
 ```ts
 // agent.config.ts
+import { defineTool } from 'dopus'
+import { z } from 'zod'
+import { searchDocs } from './app/actions/docs' // your own server function
+
+// in `tools: { ... }`
 searchDocs: defineTool((input) => searchDocs(input.query), {
   description: 'Searches the help articles and returns the best matching passages with their source.',
   usage: 'When the user asks how something works or what a policy says. Cite the title and url in the answer.',
@@ -196,7 +201,9 @@ searchDocs: defineTool((input) => searchDocs(input.query), {
 
 ```ts
 // app/actions/docs.ts
-'use server'
+import { ToolError } from 'dopus'
+// getSession, db and embed are your app's own session, database client and embedding call.
+;('use server')
 export async function searchDocs(query: string) {
   const session = await getSession()
   if (!session) throw new ToolError('Sign in to search the documents.')
@@ -438,6 +445,7 @@ A plugin earlier in the array wins, so a plugin for one tool goes in front of `a
 // components/agent/agent-chat.tsx
 import { definePlugin, type PartContext } from 'dopus/react'
 import { getToolName, isToolUIPart } from 'ai'
+import { approvals, toolLog } from 'dopus/plugins'
 
 const deleteUserCard = definePlugin({
   name: 'deleteUserCard',
@@ -505,6 +513,11 @@ the file's name and `fileId` and cannot see the contents; it reads the file thro
 
 ```ts
 // components/agent/agent.tsx
+'use client'
+import { approvals, attachments, toolLog } from 'dopus/plugins'
+import { useMemo } from 'react'
+import { type AgentChatProps, AgentWidget } from './agent-chat'
+
 async function upload(file: File, { signal }: { signal: AbortSignal }) {
   const body = new FormData()
   body.append('file', file)
@@ -513,7 +526,11 @@ async function upload(file: File, { signal }: { signal: AbortSignal }) {
   return response.json() // { id, name, type, size }
 }
 
-const plugins = useMemo(() => [toolLog(), approvals(), attachments({ upload })], [userId])
+export function Agent(props: AgentChatProps) {
+  // Created once per mount. The layout remounts Agent per user (`key`), so files picked but not sent stay with that user.
+  const plugins = useMemo(() => [toolLog(), approvals(), attachments({ upload })], [])
+  return <AgentWidget {...props} plugins={plugins} />
+}
 ```
 
 `upload` returns `{ id }` and optionally `name`, `type` and `size` (the picked file's are used otherwise). `signal`
@@ -632,7 +649,7 @@ Several tabs of the same user (checked in the browser, `examples/next-app/test/u
 
 ### Upgrading from 0.2
 
-Until 0.3 the whole chat UI was in `agent-chat.tsx` (about 600 lines). Now it is in the package, and `dopus update`
+Until 0.3 the whole chat UI was in `agent-chat.tsx` (several hundred lines). Now it is in the package, and `dopus update`
 moves your copy over:
 
 - **An untouched 0.2.x copy** is replaced by the thin wrapper above (`toolLog()` and `approvals()`, which is what the

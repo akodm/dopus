@@ -45,7 +45,7 @@ One npm package, `dopus`:
 
 - `dopus` (server runtime): `defineTool`, `createAgentHandler`, prompt layering.
 - `dopus` bin: `init` (and later `prompts diff`).
-- Templates (route, prompts, chat UI, `agent.config.ts`) are copied into the user's project (shadcn style) and owned by the user afterwards.
+- Templates (route, prompts, the thin chat wrapper and its CSS, `agent.config.ts`) are copied into the user's project (shadcn style) and owned by the user afterwards; the chat UI itself comes from `dopus/react`.
 
 `ai` and the provider packages (`@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`) are peer dependencies; `init` installs the chosen provider.
 
