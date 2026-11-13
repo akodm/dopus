@@ -201,9 +201,10 @@ searchDocs: defineTool((input) => searchDocs(input.query), {
 
 ```ts
 // app/actions/docs.ts
+'use server'
 import { ToolError } from 'dopus'
+
 // getSession, db and embed are your app's own session, database client and embedding call.
-;('use server')
 export async function searchDocs(query: string) {
   const session = await getSession()
   if (!session) throw new ToolError('Sign in to search the documents.')
@@ -344,11 +345,11 @@ export type { AgentChannel, AgentChatHistory, AgentChatLabels, AgentChatProps } 
 const plugins = [toolLog(), approvals()]
 
 export function AgentChat(props: AgentChatProps) {
-  return <Chat plugins={plugins} {...props} />
+  return <Chat {...props} plugins={props.plugins ?? plugins} />
 }
 
 export function AgentWidget(props: AgentChatProps) {
-  return <Widget plugins={plugins} {...props} />
+  return <Widget {...props} plugins={props.plugins ?? plugins} />
 }
 ```
 
@@ -387,8 +388,8 @@ field at all, such as a 0.2.x copy, a custom `useChat` client or a test posting 
 `approvals: true`. So an app that removes `approvals()` from the wrapper should expect its confirmed tools to
 disappear, not to run without a card.
 
-Plugins can hold state (`attachments()` holds the picked files). Create the list once per mount, at module scope or
-with `useMemo`, and per user if files picked but not sent must not carry over to the next user.
+Plugins can hold state (`attachments()` holds the picked files). Create the list once: at module scope, or per mount
+with `useState(() => [...])`, and per user if files picked but not sent must not carry over to the next user.
 
 ### toolLog
 
@@ -515,7 +516,7 @@ the file's name and `fileId` and cannot see the contents; it reads the file thro
 // components/agent/agent.tsx
 'use client'
 import { approvals, attachments, toolLog } from 'dopus/plugins'
-import { useMemo } from 'react'
+import { useState } from 'react'
 import { type AgentChatProps, AgentWidget } from './agent-chat'
 
 async function upload(file: File, { signal }: { signal: AbortSignal }) {
@@ -528,13 +529,16 @@ async function upload(file: File, { signal }: { signal: AbortSignal }) {
 
 export function Agent(props: AgentChatProps) {
   // Created once per mount. The layout remounts Agent per user (`key`), so files picked but not sent stay with that user.
-  const plugins = useMemo(() => [toolLog(), approvals(), attachments({ upload })], [])
+  const [plugins] = useState(() => [toolLog(), approvals(), attachments({ upload })])
   return <AgentWidget {...props} plugins={plugins} />
 }
 ```
 
 `upload` returns `{ id }` and optionally `name`, `type` and `size` (the picked file's are used otherwise). `signal`
 fires when the user removes the chip. Send is held while an upload runs, and a message with files may have no text.
+
+**The upload route is yours to secure.** It must authenticate the user and enforce its own size and type limits:
+`maxSize` and `accept` only spare the user a pointless upload in the chat, and anyone can post to the route directly.
 
 The server checks every file part before the model runs: at most 10 files per message, `id` 1 to 200 characters,
 `name` up to 255, `type` up to 100, `size` a non-negative number. A message that breaks a limit is rejected as a whole
