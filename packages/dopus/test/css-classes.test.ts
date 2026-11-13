@@ -53,4 +53,18 @@ describe('agent-chat.css', () => {
     expect(positions.every((p) => p >= 0)).toBe(true)
     expect([...positions].sort((a, b) => a - b)).toEqual(positions)
   })
+
+  // Elements that carry two dopus classes: the later rule wins equal-specificity properties, so the order matters.
+  // (dopus-panel is joined onto dopus-chat by AgentWidget; the others are literal in src/react and src/plugins.)
+  it.each([
+    ['dopus-chat', 'dopus-panel', 'the panel size beats the frame height'],
+    ['dopus-link', 'dopus-new-chat', 'new-chat font beats the link font reset'],
+    ['dopus-approval-actions', 'dopus-approval-all', 'the all-row refines the actions row'],
+    ['dopus-text', 'dopus-markdown', 'markdown white-space beats pre-wrap'],
+  ])('defines .%s before .%s (%s)', (first, second) => {
+    const rules = (name: string) =>
+      [...css.matchAll(new RegExp(`(^|\\n)\\.${name}\\s*[,{]`, 'g'))].map((m) => m.index ?? -1)
+    // The last rule of the first class (e.g. the .dopus-chat frame, not its theme variables) comes before the second.
+    expect(Math.min(...rules(second))).toBeGreaterThan(Math.max(...rules(first)))
+  })
 })

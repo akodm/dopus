@@ -34,7 +34,8 @@
 }
 
 /* 2. Floating button and panel
- * .dopus-widget (fixed corner holder), .dopus-launcher (round button, [data-unread] dot), .dopus-panel (the open chat).
+ * .dopus-widget (fixed corner holder), .dopus-launcher (round button, [data-unread] dot).
+ * The open panel's size is .dopus-panel, defined after .dopus-chat in section 3.
  */
 .dopus-widget {
   position: fixed;
@@ -45,12 +46,6 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 12px;
-}
-
-.dopus-panel {
-  width: min(400px, calc(100vw - 40px));
-  height: min(600px, calc(100vh - 120px));
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.18);
 }
 
 .dopus-launcher {
@@ -81,7 +76,8 @@
 }
 
 /* 3. Chat frame and header
- * .dopus-chat (the frame), .dopus-header (title row), .dopus-new-chat (the "New chat" button).
+ * .dopus-chat (the frame), .dopus-panel (its size in the floating widget; must stay after .dopus-chat, same element),
+ * .dopus-header (title row). The "New chat" button, .dopus-new-chat, is in section 7.
  */
 .dopus-chat {
   display: flex;
@@ -100,6 +96,12 @@
   overflow: hidden;
 }
 
+.dopus-panel {
+  width: min(400px, calc(100vw - 40px));
+  height: min(600px, calc(100vh - 120px));
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.18);
+}
+
 .dopus-header {
   display: flex;
   align-items: center;
@@ -108,13 +110,6 @@
   padding: 12px 16px;
   font-weight: 600;
   border-bottom: 1px solid var(--dopus-border);
-}
-
-/* After .dopus-link (section 7), which resets font. */
-.dopus-new-chat {
-  font-weight: 400;
-  font-size: 13px;
-  color: var(--dopus-muted);
 }
 
 /* 4. Message list, message boxes and notices
@@ -278,7 +273,8 @@
 }
 
 /* 7. Buttons and links
- * .dopus-primary (filled), .dopus-secondary (outlined), .dopus-link (text button).
+ * .dopus-primary (filled), .dopus-secondary (outlined), .dopus-link (text button), .dopus-new-chat (the link-styled
+ * "New chat" button; must stay after .dopus-link, same element).
  */
 .dopus-primary,
 .dopus-secondary {
@@ -313,6 +309,13 @@
   text-decoration: underline;
   cursor: pointer;
   font: inherit;
+}
+
+/* After .dopus-link (section 7), which resets font. */
+.dopus-new-chat {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--dopus-muted);
 }
 
 /* 8. Status
