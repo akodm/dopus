@@ -210,8 +210,22 @@ async function update(args: string[]) {
       .join('\n'),
     'Files',
   )
-  if (result.files.some((f) => f.status === 'saved-new')) {
-    p.log.info('Merge each .new file into yours, then delete it.')
+  if (result.oldChatUI) {
+    p.log.info(
+      [
+        'Your agent-chat.tsx is the old self-contained chat UI (0.2.x) and keeps working as it is.',
+        'To move to the package UI, replace it with agent-chat.tsx.new and carry your changes over as CSS,',
+        'labels or plugins. See "Upgrading from 0.2" in the README.',
+      ].join('\n'),
+    )
+  }
+  const otherNew = result.files.filter(
+    (f) => f.status === 'saved-new' && !(result.oldChatUI && f.file.endsWith('agent-chat.tsx')),
+  )
+  if (otherNew.length > 0) {
+    p.log.info(
+      `Merge each ${result.oldChatUI ? 'other ' : ''}.new file into yours, then delete it.`,
+    )
   }
   p.outro('What changed: https://github.com/akodm/dopus/blob/main/CHANGELOG.md')
 }

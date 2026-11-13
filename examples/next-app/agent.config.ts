@@ -4,6 +4,7 @@ import { z } from 'zod'
 import app, { locales } from './agent/prompts/app'
 import preset from './agent/prompts/preset'
 import { getExport, startExport } from './app/actions/exports'
+import { describeFile } from './app/actions/files'
 import { cancelOrder, getCurrentUser, listAllOrders, listMyOrders } from './app/actions/orders'
 import { chatDb } from './lib/chat-db'
 import { mockModel } from './lib/mock-model'
@@ -53,6 +54,13 @@ export default defineAgent({
       description: 'Reads an export job: its status and, when done, the file.',
       usage: 'After the app says an export job has finished.',
       input: z.object({ jobId: z.string() }),
+    }),
+    // Attached files arrive as a fileId (components/agent/agent.tsx uploads them to app/api/files).
+    describeFile: defineTool((input) => describeFile(input.fileId), {
+      description:
+        'Reads an attached file: its name, type, size and, for text files, the first 200 characters.',
+      usage: 'When the user attaches a file (the message gives its fileId).',
+      input: z.object({ fileId: z.string() }),
     }),
   },
   identify: async () => {

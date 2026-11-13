@@ -40,14 +40,17 @@ export function userMessage(text: string, id = 'u1'): UIMessage {
   return { id, role: 'user', parts: [{ type: 'text', text }] }
 }
 
-export function chatRequest(messages: UIMessage[], init: { cookie?: string } = {}) {
+export function chatRequest(
+  messages: UIMessage[],
+  init: { cookie?: string; body?: Record<string, unknown> } = {},
+) {
   return new Request('http://localhost/api/agent', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       ...(init.cookie ? { cookie: init.cookie } : {}),
     },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({ messages, ...init.body }),
   })
 }
 

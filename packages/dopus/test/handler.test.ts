@@ -2,6 +2,7 @@ import type { LanguageModelV4StreamPart } from '@ai-sdk/provider'
 import type { UIMessage } from 'ai'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { NO_APPROVAL_UI_REASON } from '../src/agent.js'
 import {
   type AgentConfig,
   createAgentHandler,
@@ -1054,5 +1055,180 @@ describe('tools limited by access (roles)', () => {
         access: () => true,
       }),
     ).toThrow(/both `public` and limited by `access`/)
+  })
+})
+
+describe('client capabilities (approvals plugin)', () => {
+  function setup(
+    steps: LanguageModelV4StreamPart[][],
+    options: { identify?: boolean; withPrivate?: boolean } = {},
+  ) {
+    const cancelOrder = vi.fn(async (input: { orderId: string }) => ({ cancelled: input.orderId }))
+    const refund = vi.fn(async () => ({ refunded: true }))
+    const getProduct = vi.fn(async () => ({ name: 'Keyboard' }))
+    const onError = vi.fn()
+    const model = scriptedModel(...steps)
+    const POST = createAgentHandler(
+      defineAgent({
+        model,
+        tools: {
+          getProduct: defineTool(getProduct, {
+            description: 'Product info',
+            input: z.object({}),
+            public: true,
+          }),
+          cancelOrder: defineTool(cancelOrder, {
+            description: 'Cancel an order',
+            input: z.object({ orderId: z.string() }),
+            confirm: true,
+            public: true,
+          }),
+          refund: defineTool(refund, {
+            description: 'Refund an order',
+            input: z.object({ amount: z.number() }),
+            confirm: (input: { amount: number }) => input.amount > 10,
+            public: true,
+          }),
+          ...(options.withPrivate
+            ? {
+                listOrders: defineTool(async () => ({ orders: [] }), {
+                  description: 'List orders',
+                  input: z.object({}),
+                }),
+              }
+            : {}),
+        },
+        ...(options.identify === false ? {} : { identify: () => undefined }),
+        approvalSecret: 'test-secret-0123456789abcdef',
+        onError,
+      }),
+    )
+    const offered = (call: number) =>
+      (model.doStreamCalls[call]?.tools ?? []).map((t) => ('name' in t ? t.name : ''))
+    const prompt = (call: number) => JSON.stringify(model.doStreamCalls[call]?.prompt)
+    return { POST, model, cancelOrder, onError, offered, prompt }
+  }
+
+  it('offers confirm tools when the body has no dopus field (0.2.x clients)', async () => {
+    const { POST, offered } = setup([textStep('ok')])
+    await readChunks(await POST(chatRequest([userMessage('hi')])))
+    expect(offered(0)).toContain('cancelOrder')
+  })
+
+  it('offers confirm tools when dopus.approvals is true', async () => {
+    const { POST, offered } = setup([textStep('ok')])
+    await readChunks(
+      await POST(chatRequest([userMessage('hi')], { body: { dopus: { approvals: true } } })),
+    )
+    expect(offered(0)).toContain('cancelOrder')
+  })
+
+  it('hides confirm tools when the client has no approvals UI', async () => {
+    const { POST, offered, prompt } = setup([textStep('ok')])
+    await readChunks(await POST(chatRequest([userMessage('hi')], { body: { dopus: {} } })))
+    expect(offered(0)).toEqual(['getProduct'])
+    expect(prompt(0)).not.toContain('cancelOrder')
+  })
+
+  it('hides a tool whose confirm is a function too', async () => {
+    const { POST, offered, prompt } = setup([textStep('ok')])
+    await readChunks(
+      await POST(chatRequest([userMessage('hi')], { body: { dopus: { approvals: false } } })),
+    )
+    expect(offered(0)).not.toContain('refund')
+    expect(prompt(0)).not.toContain('refund')
+  })
+
+  it('settles an approved card for a confirm tool as not run when approvals is false', async () => {
+    const { POST, cancelOrder, onError, prompt } = setup([
+      toolCallStep('cancelOrder', { orderId: 'o1' }),
+      textStep('Cancelled.'),
+      textStep('Sorry.'),
+    ])
+    const first = userMessage('cancel o1')
+    const asked = await assistantMessage(await readChunks(await POST(chatRequest([first]))))
+    const part = asked.parts.find((p) => p.type === 'tool-cancelOrder') as {
+      state: string
+      toolCallId: string
+      approval: { approved?: boolean }
+    }
+    expect(part.state).toBe('approval-requested')
+    part.state = 'approval-responded'
+    part.approval = { ...part.approval, approved: true }
+
+    const chunks = await readChunks(
+      await POST(chatRequest([first, asked], { body: { dopus: {} } })),
+    )
+    expect(cancelOrder).not.toHaveBeenCalled()
+    expect(chunks).toContainEqual({ type: 'tool-output-denied', toolCallId: part.toolCallId })
+    expect(prompt(1)).toContain(NO_APPROVAL_UI_REASON)
+    expect(prompt(1)).not.toContain('does not have access')
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('does not add the signed-out note for tools hidden only by capability', async () => {
+    // Anonymous; the hidden tools (cancelOrder, refund) are public, so none is hidden by sign-in.
+    const { POST, offered, prompt } = setup([textStep('ok')])
+    await readChunks(await POST(chatRequest([userMessage('hi')], { body: { dopus: {} } })))
+    expect(offered(0)).toEqual(['getProduct'])
+    expect(prompt(0)).not.toContain('Not signed in.')
+  })
+
+  it('still adds the signed-out note when a tool is hidden by sign-in as well', async () => {
+    const { POST, offered, prompt } = setup([textStep('ok')], { withPrivate: true })
+    await readChunks(await POST(chatRequest([userMessage('hi')], { body: { dopus: {} } })))
+    expect(offered(0)).toEqual(['getProduct'])
+    expect(prompt(0)).toContain('Not signed in.')
+  })
+})
+
+describe('file attachments', () => {
+  const file = (id: unknown = 'f1') => ({
+    type: 'data-dopus-file' as const,
+    data: { id, name: 'sales.xlsx', type: 'text/csv', size: 12 },
+  })
+  const setup = () => {
+    const model = scriptedModel(textStep('ok'))
+    const POST = createAgentHandler(defineAgent({ model, tools: {}, ...silent }))
+    return { model, POST }
+  }
+
+  it('turns a file part into a server-written notice', async () => {
+    const { model, POST } = setup()
+    const message = {
+      id: 'u1',
+      role: 'user',
+      parts: [{ type: 'text', text: 'look' }, file()],
+    } as UIMessage
+    const response = await POST(chatRequest([message]))
+    expect(response.status).toBe(200)
+    await readChunks(response)
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain(
+      'The user attached a file: \\"sales.xlsx\\" (text/csv, 12 bytes), fileId \\"f1\\".',
+    )
+  })
+
+  it('rejects more than 10 files in a message', async () => {
+    const { POST } = setup()
+    const message = {
+      id: 'u1',
+      role: 'user',
+      parts: Array.from({ length: 11 }, () => file()),
+    } as UIMessage
+    const response = await POST(chatRequest([message]))
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: 'Invalid file attachment' })
+  })
+
+  it('rejects a file part with a non-string id', async () => {
+    const { POST } = setup()
+    const message = { id: 'u1', role: 'user', parts: [file(3)] } as UIMessage
+    expect((await POST(chatRequest([message]))).status).toBe(400)
+  })
+
+  it('rejects a file part on an assistant message', async () => {
+    const { POST } = setup()
+    const message = { id: 'a1', role: 'assistant', parts: [file()] } as UIMessage
+    expect((await POST(chatRequest([userMessage('hi'), message]))).status).toBe(400)
   })
 })

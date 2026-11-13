@@ -11,7 +11,7 @@ pnpm dopus init
 - **Reuse what you have.** Register the server actions and functions your app already has. You don't write a second API for the agent.
 - **Permissions come for free.** Tools run inside the agent's request, so `cookies()` and `headers()` in your server functions see the signed-in user. Your own auth and ownership checks keep working unchanged.
 - **Writes wait for the user.** Mark a tool `confirm: true` and the user approves each call in the chat. Approvals are signed so a client cannot forge one.
-- **You own the generated code.** `init` copies the route, prompts and chat UI into your project, shadcn-style. Only the runtime lives in the package.
+- **You own the generated code.** `init` copies the route, prompts and a thin chat wrapper (plus its CSS) into your project, shadcn-style. The runtime and the chat UI itself live in the package; see [Chat UI](#chat-ui).
 
 Built on the [Vercel AI SDK](https://ai-sdk.dev) 7. Supports OpenAI, Anthropic and Google models.
 
@@ -49,7 +49,7 @@ pnpm dopus init
 | `agent.config.ts`                                 | Model, tools and prompt layers. Edit this.                                    |
 | `agent/prompts/preset.ts`, `agent/prompts/app.ts` | Your prompt layers. Yours to edit.                                            |
 | `app/api/agent/route.ts`                          | `POST /api/agent`. It speaks the AI SDK `useChat` protocol.                   |
-| `components/agent/agent-chat.tsx` (+ `.css`)      | Chat panel and floating widget. Plain CSS with `dopus-` classes.              |
+| `components/agent/agent-chat.tsx` (+ `.css`)      | Thin wrapper: chat panel and widget with plugins. CSS with `dopus-` classes.  |
 
 It also installs whatever is missing of `ai`, `zod`, `@ai-sdk/react` and the provider package. It checks that `.env.local` is git-ignored.
 
@@ -180,6 +180,54 @@ Only two kinds of error message reach the model:
 
 Any other error goes to `onError` and is replaced with a generic message, so database errors and stack details stay on the server. The browser sees the same text as the model: the `ToolError` message, or the generic one.
 
+## Search your documents (RAG)
+
+Retrieval is a tool. Write a server function that searches your vector store and register it like any other:
+
+```ts
+// agent.config.ts
+import { defineTool } from 'dopus'
+import { z } from 'zod'
+import { searchDocs } from './app/actions/docs' // your own server function
+
+// in `tools: { ... }`
+searchDocs: defineTool((input) => searchDocs(input.query), {
+  description: 'Searches the help articles and returns the best matching passages with their source.',
+  usage: 'When the user asks how something works or what a policy says. Cite the title and url in the answer.',
+  input: z.object({ query: z.string() }),
+  output: (result) => result.map(({ title, url, passage }) => ({ title, url, passage })),
+}),
+```
+
+```ts
+// app/actions/docs.ts
+'use server'
+import { ToolError } from 'dopus'
+
+// getSession, db and embed are your app's own session, database client and embedding call.
+export async function searchDocs(query: string) {
+  const session = await getSession()
+  if (!session) throw new ToolError('Sign in to search the documents.')
+  // The permission filter is part of the query, with the session's org, so a passage the user may not read is never
+  // retrieved. Do not filter the results afterwards, and never take the org from the model's input.
+  return db.query(
+    `select title, url, passage from chunks where org_id = $1 order by embedding <=> $2 limit 5`,
+    [session.orgId, await embed(query)],
+  )
+}
+```
+
+- **The filter goes inside the search query.** The function runs with the caller's cookie, so it knows the user. Anything
+  the model can pass in (`query`, a filter argument) is only a request.
+- **Trim with `output`.** Send the model the passages and not the embeddings, scores or internal ids. Keep `limit`
+  small; the results count against the history on every later step.
+- **Return `title` and `url`** so the model can cite its sources, and say so in `usage`.
+- **Retrieved text is untrusted input.** A document may contain instructions. Tools that write keep `confirm: true`, so
+  an injected "delete the account" still stops at the approval card. See [Permissions and security](#permissions-and-security).
+- **There is no "retrieve on every turn" hook.** The `runtime` layer does not receive the messages, so dopus cannot
+  search for the user's question before the model answers. The tool is the supported way: the model decides when to
+  search, and the tool line in the chat shows it did.
+
 ## Permissions and security
 
 **How permission inheritance works.** `createAgentHandler` runs the whole tool loop inside the `POST /api/agent` request. A server function called as a tool therefore sees that request's cookies and headers, just as it does when your own UI calls it. The repo's end-to-end test checks this on a real `next start` server. It confirms that tools read the caller's session cookie, return only the caller's data, and still apply the app's ownership check after an approval.
@@ -281,17 +329,246 @@ Anthropic gets an explicit cache breakpoint after layer 3. OpenAI and Gemini cac
 
 ## Chat UI
 
-`components/agent/agent-chat.tsx` exports two components:
+The chat UI lives in the package. `components/agent/agent-chat.tsx` is a thin wrapper that picks the parts of the
+chat you want:
+
+```tsx
+// components/agent/agent-chat.tsx — generated by dopus init; yours to edit
+'use client'
+import { approvals, toolLog } from 'dopus/plugins'
+import { type AgentChatProps, AgentChat as Chat, AgentWidget as Widget } from 'dopus/react'
+import './agent-chat.css'
+
+export type { AgentChannel, AgentChatHistory, AgentChatLabels, AgentChatProps } from 'dopus/react'
+
+// Plugins are optional. Remove a line to drop that part of the chat; see the README.
+const plugins = [toolLog(), approvals()]
+
+export function AgentChat(props: AgentChatProps) {
+  return <Chat {...props} plugins={props.plugins ?? plugins} />
+}
+
+export function AgentWidget(props: AgentChatProps) {
+  return <Widget {...props} plugins={props.plugins ?? plugins} />
+}
+```
+
+It exports two components, both from `dopus/react`:
 
 - `<AgentChat />`: the panel;
 - `<AgentWidget />`: a floating launcher that opens the panel.
 
-Both accept `api`, `suggestions`, `labels` (every UI string, for translation), `className`, `channel` /
+Both accept `api`, `suggestions`, `labels` (every UI string, for translation), `className`, `plugins`, `channel` /
 `maxJobFollowUps` for [background jobs](#background-jobs), and `history` to [keep the chat](#chat-history).
+Passing `plugins` to a component replaces the wrapper's list.
 
-The UI shows each tool call as it runs. When a reply finishes while the widget is closed (for example the agent
-continuing after a [background job](#background-jobs)), the launcher shows a dot until it is opened (`labels.unread`
-for screen readers; `onReply` if you want your own signal). It renders an approve/decline card for confirmed tools and continues automatically once the user answers. When a tool has run, it calls `router.refresh()` so server components show the changed data. Closing the widget keeps the conversation, and a "New chat" button clears it. Assistant replies render as Markdown (tables, lists, code) through `react-markdown` with `remark-gfm`, which `init` installs. Raw HTML is never rendered, images show only their alt text, and links keep only http(s), mailto and relative URLs. If a request is over the size limit (413), the UI says so and offers a new chat instead of a useless retry. It also has stop and retry buttons, and it does not send on Enter while an IME (Korean, Japanese, Chinese) is still composing.
+The panel itself does the basics: messages, Markdown, the composer, stop and retry. When a reply finishes while the
+widget is closed (for example the agent continuing after a [background job](#background-jobs)), the launcher shows a
+dot until it is opened (`labels.unread` for screen readers; `onReply` if you want your own signal). After a tool has
+run it calls `router.refresh()`, so server components show the changed data. Closing the widget keeps the
+conversation, and a "New chat" button clears it. Assistant replies render as Markdown (tables, lists, code) through
+`react-markdown` with `remark-gfm`, which `init` installs. Raw HTML is never rendered, images show only their alt text,
+and links keep only http(s), mailto and relative URLs. If a request is over the size limit (413), the UI says so and
+offers a new chat instead of a useless retry. It does not send on Enter while an IME (Korean, Japanese, Chinese) is
+still composing.
+
+What happens around tool calls, approvals and files is done by plugins:
+
+| Plugin          | What it shows                                                                                              | Without it                                                                                       |
+| --------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `toolLog()`     | One line per tool call: running, done (with the output), failed, declined, not run, background job running | No tool lines. Tool parts that no other plugin renders are not shown.                            |
+| `approvals()`   | The approve / decline card for `confirm` tools, and "Approve all"                                          | **Confirm tools are not offered to the model.** The server leaves out every tool with `confirm`. |
+| `attachments()` | An attach button and file chips in the composer                                                            | No file attaching.                                                                               |
+
+Plugins are tried in array order for each message part; the first one that returns something other than `undefined` or
+`false` wins. `approvals()` also tells the server the chat can show cards: every request carries
+`dopus: { approvals: true }`. A request with a `dopus` field without `approvals: true` gets no `confirm` tools (a
+boolean or a function `confirm` alike; the tool is left out like one hidden by `access`). A request with no `dopus`
+field at all, such as a 0.2.x copy, a custom `useChat` client or a test posting directly, is treated as
+`approvals: true`. So an app that removes `approvals()` from the wrapper should expect its confirmed tools to
+disappear, not to run without a card.
+
+Plugins can hold state (`attachments()` holds the picked files). Create the list once: at module scope, or per mount
+with `useState(() => [...])`, and per user if files picked but not sent must not carry over to the next user.
+
+### toolLog
+
+```ts
+toolLog({ details: false, hide: ['getCurrentUser'], title: (name) => name })
+```
+
+| Option    | Default                 | What it does                                                         |
+| --------- | ----------------------- | -------------------------------------------------------------------- |
+| `details` | `true`                  | Show the tool output in an expandable block.                         |
+| `hide`    | `[]`                    | Tool names to leave out of the chat.                                 |
+| `title`   | the humanized tool name | The title of a tool line (`cancelOrder` is shown as `Cancel order`). |
+| `labels`  | none                    | Override labels for this plugin only.                                |
+
+### approvals
+
+```ts
+approvals({ approveAll: false, describe: (tool, input) => <p>{tool}: {JSON.stringify(input)}</p> })
+```
+
+| Option       | Default                | What it does                                                        |
+| ------------ | ---------------------- | ------------------------------------------------------------------- |
+| `approveAll` | `true`                 | Show "Approve all" / "Decline all" when two or more cards are open. |
+| `describe`   | the tool input as JSON | What the card shows about the call. Return any React node.          |
+| `labels`     | none                   | Override labels for this plugin only.                               |
+
+The conversation continues automatically once the user answers every open card. A card from an earlier message is shown
+by `toolLog()` as "Not run".
+
+### attachments
+
+```ts
+attachments({ upload, accept: 'image/*,.pdf,.xlsx', maxFiles: 3, maxSize: 5 * 1024 * 1024 })
+```
+
+| Option     | Default  | What it does                                                                                     |
+| ---------- | -------- | ------------------------------------------------------------------------------------------------ |
+| `upload`   | required | `(file, { signal }) => Promise<{ id, name?, type?, size? }>`. See [Attachments](#attachments-1). |
+| `accept`   | any      | The file input's `accept`.                                                                       |
+| `maxFiles` | `5`      | Files per message. Never more than 10, the server's limit.                                       |
+| `maxSize`  | 20 MB    | Bytes per file. A bigger file shows an error chip and is not uploaded.                           |
+| `labels`   | none     | Override labels for this plugin only.                                                            |
+
+### Your own plugin
+
+`definePlugin` types a plugin object. The hooks are `renderPart` (tool parts and data parts), `renderFooter` (after the
+messages), `renderComposer` (next to the send button), `beforeSend` / `afterSend` (add parts to a message, or hold it
+back) and `capabilities`. `humanizeToolName` and `JsonBlock` are exported for building cards.
+
+A plugin earlier in the array wins, so a plugin for one tool goes in front of `approvals()`. A card for a
+`deleteUser` tool that says who will be deleted:
+
+```tsx
+// components/agent/agent-chat.tsx
+import { definePlugin, type PartContext } from 'dopus/react'
+import { getToolName, isToolUIPart } from 'ai'
+import { approvals, toolLog } from 'dopus/plugins'
+
+const deleteUserCard = definePlugin({
+  name: 'deleteUserCard',
+  renderPart(part, ctx: PartContext) {
+    if (!isToolUIPart(part) || getToolName(part) !== 'deleteUser') return undefined
+    if (part.state !== 'approval-requested' || ctx.stale) return undefined
+    const { email } = part.input as { email: string }
+    return (
+      <fieldset className="dopus-approval">
+        <legend className="dopus-approval-title">Delete {email}?</legend>
+        <div className="dopus-approval-actions">
+          <button
+            type="button"
+            className="dopus-primary"
+            onClick={() => ctx.respondToApproval(part.approval.id, true)}
+          >
+            Delete
+          </button>
+          <button
+            type="button"
+            className="dopus-secondary"
+            onClick={() => ctx.respondToApproval(part.approval.id, false)}
+          >
+            Keep
+          </button>
+        </div>
+      </fieldset>
+    )
+  },
+})
+
+const plugins = [deleteUserCard, toolLog(), approvals()]
+```
+
+Return `undefined` or `false` to leave a part to the next plugin (so `condition && <X />` works), a node to render it,
+and `null` to render nothing and stop (that is how `hide` works). The tool still needs `confirm: true` on the server;
+`approvals()` stays in the list because it is what tells the server the chat can ask.
+
+### Styling
+
+Styling is one plain CSS file (`agent-chat.css`) whose classes all start with `dopus-`, themed through `--dopus-*`
+variables, with dark mode included. It is deliberately not a CSS Module: create-next-app's Tailwind setup routes every
+`*.css` file, modules included, through its own Turbopack loader, which left module classes unstyled. It needs no
+Tailwind and no component library. The file is yours, so restyle it. It has 11 commented sections:
+
+1. Theme (the `--dopus-*` variables)
+2. Floating button and panel
+3. Chat frame and header
+4. Message list, message boxes and notices
+5. Assistant text (Markdown)
+6. Composer
+7. Buttons and links
+8. Status
+9. Plugin: tool log
+10. Plugin: approvals
+11. Plugin: attachments
+
+A plugin you leave out just leaves its section unused. Plugins only use classes from this file.
+
+### Attachments
+
+The file does not go through the agent route. `attachments()` calls your `upload` as soon as a file is picked, you
+store it in your own storage, and the message carries only a reference (`id`, `name`, `type`, `size`). The model is told
+the file's name and `fileId` and cannot see the contents; it reads the file through a tool of yours that takes the id.
+
+```ts
+// components/agent/agent.tsx
+'use client'
+import { approvals, attachments, toolLog } from 'dopus/plugins'
+import { useState } from 'react'
+import { type AgentChatProps, AgentWidget } from './agent-chat'
+
+async function upload(file: File, { signal }: { signal: AbortSignal }) {
+  const body = new FormData()
+  body.append('file', file)
+  const response = await fetch('/api/files', { method: 'POST', body, signal })
+  if (!response.ok) throw new Error(`Upload failed: ${response.status}`)
+  return response.json() // { id, name, type, size }
+}
+
+export function Agent(props: AgentChatProps) {
+  // Created once per mount. The layout remounts Agent per user (`key`), so files picked but not sent stay with that user.
+  const [plugins] = useState(() => [toolLog(), approvals(), attachments({ upload })])
+  return <AgentWidget {...props} plugins={plugins} />
+}
+```
+
+`upload` returns `{ id }` and optionally `name`, `type` and `size` (the picked file's are used otherwise). `signal`
+fires when the user removes the chip. Send is held while an upload runs, and a message with files may have no text.
+
+**The upload route is yours to secure.** It must authenticate the user and enforce its own size and type limits:
+`maxSize` and `accept` only spare the user a pointless upload in the chat, and anyone can post to the route directly.
+
+The server checks every file part before the model runs: at most 10 files per message, `id` 1 to 200 characters,
+`name` up to 255, `type` up to 100, `size` a non-negative number. A message that breaks a limit is rejected as a whole
+(400). The model sees a server-written line with the file's name, type, size and `fileId`.
+
+**The owner check is your tool's job.** The `fileId` comes from the browser, so a user can send any id. The tool that
+reads the file must check that it belongs to the signed-in user, like any other server function:
+
+```ts
+// agent.config.ts
+describeFile: defineTool((input) => describeFile(input.fileId), {
+  description: 'Reads an attached file.',
+  usage: 'When the user attaches a file (the message gives its fileId).',
+  input: z.object({ fileId: z.string() }),
+}),
+```
+
+`describeFile` looks the id up for the session's user and returns "not found" for anyone else's file. The example app
+has an `/api/files` route and this tool in `examples/next-app` (`app/api/files/route.ts`, `app/actions/files.ts`).
+
+**Spreadsheets.** For an upload that becomes data, split the work in tools so the model never has to read a whole
+file, and so the write is a step the user approves:
+
+- `inspectSpreadsheet(fileId)`: sheet names, headers, row count and a few sample rows;
+- `querySpreadsheet(fileId, sheet, filter, limit)`: rows that match, capped (use `output` to trim);
+- `previewImport(fileId, mapping)`: validates the rows against your schema and returns what would change, writing nothing;
+- `importOrders(fileId, mapping)` (your own name): does the import, with `confirm: true`, so the user sees the
+  mapping and the counts before anything is written.
+
+Every one of them checks the file's owner first.
 
 ### Chat history
 
@@ -374,7 +651,22 @@ Several tabs of the same user (checked in the browser, `examples/next-app/test/u
   so the second one reaches your server function again. Check the current state there ("already cancelled") rather
   than relying on the card.
 
-Styling is one plain CSS file (`agent-chat.css`) whose classes all start with `dopus-`, themed through `--dopus-*` variables, with dark mode included. It is deliberately not a CSS Module: create-next-app's Tailwind setup routes every `*.css` file, modules included, through its own Turbopack loader, which left module classes unstyled. It needs no Tailwind and no component library. The file is yours, so restyle it or swap in your own components.
+### Upgrading from 0.2
+
+Until 0.3 the whole chat UI was in `agent-chat.tsx` (several hundred lines). Now it is in the package, and `dopus update`
+moves your copy over:
+
+- **An untouched 0.2.x copy** is replaced by the thin wrapper above (`toolLog()` and `approvals()`, which is what the
+  old UI showed). It has the same path and exports (`AgentChat`, `AgentWidget`, the types), so your layout and your own
+  wrappers keep building. `agent-chat.css` is updated the same way.
+- **An edited copy** is left as it is, and the wrapper is written next to it as `agent-chat.tsx.new`. The old file is
+  self-contained and keeps working. Merge when you want the plugins: move your changes into CSS, `labels`, plugin
+  options or a plugin of your own.
+- Your own wrappers around the chat (such as `agent.tsx` with `channel` and `history`) are not touched.
+
+A custom client built on `useChat` that sends a `dopus` field (for example `dopus: {}`) without `approvals: true` no
+longer gets `confirm` tools. Send `dopus: { approvals: true }` if your client shows approval cards. A client that sends
+no `dopus` field is unchanged.
 
 ## Configuration
 

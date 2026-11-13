@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+- Chat UI plugins: the chat UI now lives in the package (`dopus/react`: `AgentChat`, `AgentWidget`), and
+  `components/agent/agent-chat.tsx` is a thin wrapper that picks plugins. `definePlugin` and the `ChatPlugin` types
+  let an app add its own parts (a card for one tool, a footer, something in the composer); plugins are tried in array
+  order and the first that renders wins.
+- Plugins in `dopus/plugins`: `toolLog()` (tool lines; `details`, `hide`, `title`), `approvals()` (approve / decline
+  cards; `approveAll`, `describe`) and `attachments()`.
+- Behaviour change: a client that sends `dopus` without `approvals: true` no longer gets confirm tools. Every tool with
+  `confirm` (a boolean or a function) is left out for it. The chat UI sends `approvals: true` when `approvals()` is in
+  its plugins; a client that sends no `dopus` field at all (0.2.x copies, `useChat` UIs, tests) is unchanged. A custom
+  client that sends `dopus: {}` should send `dopus: { approvals: true }`.
+- Attachments: `attachments({ upload })` uploads a picked file to your own storage and sends a `data-dopus-file`
+  reference (`id`, `name`, `type`, `size`). The server validates the parts (at most 10 per message, field lengths) and
+  tells the model the name and `fileId`; the tool that reads the file checks the owner.
+  In the composer the file chips take their own row above the input, and a long name is cut with an ellipsis, so the
+  input and Send stay usable; a chip's upload status is announced to screen readers. The model-facing file line
+  replaces control characters in the type as well as the name.
+- A confirmation closed because the client has no approval UI is recorded as "Not run: this chat cannot ask the user
+  for approval." (it said the user had no access). Job follow-ups no longer wait on an approval card the chat cannot
+  show.
+- `agent-chat.css` has 11 commented sections, one per part of the chat and per plugin.
+- `dopus update`: an untouched 0.2.x `agent-chat.tsx` is replaced with the thin wrapper; an edited one keeps working
+  and the wrapper is written next to it as `agent-chat.tsx.new`. For that case `update` says to replace the old file
+  with the `.new` one and carry your changes over as CSS, labels or plugins, rather than to merge the two.
+- The template wrapper passes `plugins={props.plugins ?? plugins}`, so an explicit `plugins={undefined}` keeps the
+  default plugins.
+- README: Chat UI rewritten (plugins, your own plugin, styling, attachments with a spreadsheet recipe, upgrading from
+  0.2) and a new "Search your documents (RAG)" section.
+- Example app: `attachments()` with an `/api/files` upload route and a `describeFile` tool that checks the owner.
+
 ## 0.2.14 — 2026-11-12
 
 - Fix: `onFinish` gave a new reply the id `''` (only a reply continued after an approval had an id), so saving

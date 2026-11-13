@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { nextApp } from './fixture.js'
@@ -43,6 +43,20 @@ describe('dopus CLI (built)', () => {
       expect(run.status).toBe(0)
       expect(run.stdout).toContain('dopus init [options]')
     }
+  })
+
+  it('update says how to move an edited 0.2.x chat file to the package UI', () => {
+    const old = readFileSync(join(import.meta.dirname, 'fixtures', 'agent-chat-0.2.14.tsx'), 'utf8')
+    const root = nextApp({ files: { 'components/agent/agent-chat.tsx': `${old}\n// mine\n` } })
+    const run = spawnSync('node', [cli, 'update', '--yes', '--no-install', '--cwd', root], {
+      encoding: 'utf8',
+    })
+    expect(run.status).toBe(0)
+    expect(existsSync(join(root, 'components/agent/agent-chat.tsx.new'))).toBe(true)
+    expect(run.stdout).toContain('old self-contained chat UI')
+    expect(run.stdout).toContain('replace it with agent-chat.tsx.new')
+    expect(run.stdout).toContain('Upgrading from 0.2')
+    expect(run.stdout).not.toContain('Merge each')
   })
 
   it('rejects unknown commands', () => {

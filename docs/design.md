@@ -45,7 +45,7 @@ One npm package, `dopus`:
 
 - `dopus` (server runtime): `defineTool`, `createAgentHandler`, prompt layering.
 - `dopus` bin: `init` (and later `prompts diff`).
-- Templates (route, prompts, chat UI, `agent.config.ts`) are copied into the user's project (shadcn style) and owned by the user afterwards.
+- Templates (route, prompts, the thin chat wrapper and its CSS, `agent.config.ts`) are copied into the user's project (shadcn style) and owned by the user afterwards; the chat UI itself comes from `dopus/react`.
 
 `ai` and the provider packages (`@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`) are peer dependencies; `init` installs the chosen provider.
 
@@ -108,6 +108,11 @@ export const POST = createAgentHandler(agent)
 - `components/agent/agent-chat.tsx` + `.css` (global, `dopus-` prefixed; a CSS Module broke under create-next-app's Tailwind Turbopack rule) — `AgentChat` (panel) and `AgentWidget` (floating launcher):
   tool states, approve/decline card, stop/retry, suggestions, IME-safe Enter, `--dopus-*` CSS variables, dark mode.
   No Tailwind or component library needed.
+
+Update 2026-11-13: the chat UI itself moved into the package (`dopus/react`, with `dopus/plugins` for `toolLog`,
+`approvals` and `attachments`), and `agent-chat.tsx` became a thin wrapper that picks plugins, so UI fixes arrive with
+npm and customisation is CSS, labels, plugin options and custom plugins. See
+[the spec](superpowers/specs/2026-11-13-plugins-design.md).
 
 Prompts are `.ts` modules (template strings), not `.md` read from disk, so they bundle on every runtime (Node, edge, serverless)
 without file tracing.

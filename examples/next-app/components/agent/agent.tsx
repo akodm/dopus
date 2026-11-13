@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo } from 'react'
+import { approvals, attachments, toolLog } from 'dopus/plugins'
+import { useMemo, useState } from 'react'
 import { closeChat, loadChat } from '@/app/actions/chat'
 import {
   type AgentChannel,
@@ -16,6 +17,15 @@ const channel: AgentChannel = {
     events.onmessage = (event) => finished(JSON.parse(event.data).jobId)
     return () => events.close()
   },
+}
+
+/** The app's own storage for attached files (app/api/files); the message carries only the returned ID. */
+async function upload(file: File, { signal }: { signal: AbortSignal }) {
+  const body = new FormData()
+  body.append('file', file)
+  const response = await fetch('/api/files', { method: 'POST', body, signal })
+  if (!response.ok) throw new Error(`Upload failed: ${response.status}`)
+  return response.json()
 }
 
 /**
@@ -43,5 +53,10 @@ export function Agent({
       !user ? undefined : savedOnServer ? serverHistory : sessionHistory(`dopus-chat:${user}`),
     [user, savedOnServer],
   )
-  return <AgentWidget {...props} channel={channel} history={history} />
+  // The template's plugins (agent-chat.tsx) plus attachments, which need the app's upload. Passing `plugins` here
+  // replaces the template's list, so agent-chat.tsx stays identical to what `dopus init` copies. Created once per
+  // mount (lazy useState), not at module scope: the layout remounts Agent per user (`key`), so files picked but not
+  // sent stay with that user.
+  const [plugins] = useState(() => [toolLog(), approvals(), attachments({ upload })])
+  return <AgentWidget {...props} plugins={plugins} channel={channel} history={history} />
 }

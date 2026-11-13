@@ -17,6 +17,13 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from 'ai'
+import {
+  type AttachedFile,
+  FILE_PART,
+  fileNotice,
+  isAttachedFile,
+  MAX_FILES_PER_MESSAGE,
+} from './files.js'
 import { isJobId, JOB_PART, jobNotice, withJob } from './job.js'
 import { ToolError, translateNextError } from './next-errors.js'
 import { buildInstructions, type PromptLayers, type RuntimeContext } from './prompt.js'
@@ -248,9 +255,11 @@ export async function visibleTools(
   config: Pick<AgentConfig, 'tools' | 'identify'>,
   user: AgentUser | undefined,
   report?: (error: unknown) => void,
+  features?: ClientFeatures,
 ) {
   const tools: DopusToolSet = {}
   const hidden: string[] = []
+  const hiddenByClient: string[] = []
   for (const [name, t] of Object.entries(config.tools)) {
     const { access } = t.options
     let allowed: boolean
@@ -265,10 +274,14 @@ export async function visibleTools(
         allowed = false
       }
     }
-    if (allowed) tools[name] = t
-    else hidden.push(name)
+    if (!allowed) hidden.push(name)
+    else if (features?.approvals === false && t.options.confirm) {
+      hidden.push(name)
+      hiddenByClient.push(name)
+    } else tools[name] = t
   }
-  return { tools, hidden }
+  // `hiddenByClient` is a subset of `hidden`: tools this user may use, but whose client cannot show an approval card.
+  return { tools, hidden, hiddenByClient }
 }
 
 interface BuildContext {
@@ -384,12 +397,26 @@ export function readClientContext(body: unknown, request: Request): ClientContex
   return { locale, page: clean(raw.page, 200) }
 }
 
+/** What the browser's chat UI can show. Absent (0.2.x clients, direct API callers): everything. */
+export interface ClientFeatures {
+  approvals: boolean
+}
+
+export function readClientFeatures(body: unknown): ClientFeatures {
+  const raw = (body as { dopus?: unknown } | null)?.dopus
+  if (typeof raw !== 'object' || raw === null) return { approvals: true }
+  return { approvals: (raw as { approvals?: unknown }).approvals === true }
+}
+
 /** Reason recorded for a confirmation of a tool that needs sign-in, answered by a user who is not signed in. */
 export const SIGN_IN_REASON =
   'Not run: this needs the user to be signed in, and they are not (anymore). Tell them to sign in first.'
 
 /** Reason recorded for a confirmation of a tool the signed-in user may not use (anymore). */
 export const NO_ACCESS_REASON = 'Not run: the user does not have access to this.'
+
+/** Reason recorded for a confirmation of a tool left out because this client cannot show approval cards. */
+export const NO_APPROVAL_UI_REASON = 'Not run: this chat cannot ask the user for approval.'
 
 /** Runtime prompt line for anonymous users when some tools are hidden from them. */
 export const SIGNED_OUT_NOTE =
@@ -546,7 +573,8 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
     }
 
     const user = await config.identify?.(request)
-    const visible = await visibleTools(config, user, report)
+    const features = readClientFeatures(body)
+    const visible = await visibleTools(config, user, report, features)
     const { tools, toolApproval } = buildTools(visible.tools, {
       user,
       report,
@@ -559,10 +587,11 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
     if (!validated.success) {
       return errorResponse(400, 'Invalid messages')
     }
+    const byAccess = visible.hidden.filter((name) => !visible.hiddenByClient.includes(name))
     const messages = settleStaleApprovals(
-      validated.data,
-      visible.hidden,
-      user ? NO_ACCESS_REASON : SIGN_IN_REASON,
+      settleStaleApprovals(validated.data, byAccess, user ? NO_ACCESS_REASON : SIGN_IN_REASON),
+      visible.hiddenByClient,
+      NO_APPROVAL_UI_REASON,
     )
     const tooLong = messages.some(
       (message) =>
@@ -577,6 +606,16 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
       ),
     )
     if (badJob) return errorResponse(400, 'Invalid job notice')
+    const badFile = messages.some((message) => {
+      const files = message.parts.filter((part) => part.type === FILE_PART)
+      return (
+        files.length > 0 &&
+        (message.role !== 'user' ||
+          files.length > MAX_FILES_PER_MESSAGE ||
+          !files.every((part) => isAttachedFile((part as { data?: unknown }).data)))
+      )
+    })
+    if (badFile) return errorResponse(400, 'Invalid file attachment')
 
     const early = await config.beforeRequest?.({ request, user, messages })
     if (early instanceof Response) return early
@@ -606,7 +645,7 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
     const runtime = {
       ...client,
       // Anonymous only: a signed-in user is never told that tools were held back.
-      ...(!user && visible.hidden.length > 0 ? { access: SIGNED_OUT_NOTE } : {}),
+      ...(!user && byAccess.length > 0 ? { access: SIGNED_OUT_NOTE } : {}),
       ...(await config.runtime?.(request, { user, client })),
     }
     const approvalSecret = config.approvalSecret ?? process.env.DOPUS_APPROVAL_SECRET
@@ -631,11 +670,16 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
       instructions: buildInstructions(config.prompt, runtime),
       messages: await convertToModelMessages(messages, {
         tools,
-        // A finished-job notice becomes server-written text; other data parts stay out of the prompt.
-        convertDataPart: (part) =>
-          part.type === JOB_PART
-            ? { type: 'text', text: jobNotice((part.data as { id: string }).id) }
-            : undefined,
+        // Job notices and file references become server-written text; other data parts stay out of the prompt.
+        convertDataPart: (part) => {
+          if (part.type === JOB_PART) {
+            return { type: 'text', text: jobNotice((part.data as { id: string }).id) }
+          }
+          if (part.type === FILE_PART) {
+            return { type: 'text', text: fileNotice(part.data as AttachedFile) }
+          }
+          return undefined
+        },
       }),
       tools,
       toolApproval,

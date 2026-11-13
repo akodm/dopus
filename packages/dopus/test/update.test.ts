@@ -12,6 +12,11 @@ const CHAT = 'components/agent/agent-chat.tsx'
 const CSS = 'components/agent/agent-chat.css'
 const ROUTE = 'app/api/agent/route.ts'
 const PRESET = 'agent/prompts/preset.ts'
+// The ~600-line chat template of dopus 0.2.14 (before the shell moved into `dopus/react`).
+const CHAT_0_2_14 = readFileSync(
+  join(import.meta.dirname, 'fixtures', 'agent-chat-0.2.14.tsx'),
+  'utf8',
+)
 
 // The route `dopus init` 0.1.0–0.2.3 generated (no time budget), with a project-specific config path.
 const ROUTE_0_2_0 = `import { createAgentHandler } from 'dopus'
@@ -97,16 +102,16 @@ describe('runUpdate', () => {
 
   it('asks about an edited file; can show the diff, then keep it', async () => {
     const edited = readTemplate('ui/agent-chat.tsx').replace(
-      "title: 'Assistant'",
-      "title: 'Helper'",
+      'toolLog(), approvals()',
+      'approvals()',
     )
     const root = project({ [CHAT]: edited, [CSS]: readTemplate('ui/agent-chat.css') })
     const { io, calls } = updateIO(['diff', 'skip'])
     const result = await runUpdate({ cwd: root }, io)
     expect(status(result, CHAT)).toBe('kept')
     expect(calls.choose).toHaveLength(2)
-    expect(calls.diffs[0]).toContain("-  title: 'Helper',")
-    expect(calls.diffs[0]).toContain("+  title: 'Assistant',")
+    expect(calls.diffs[0]).toContain('-const plugins = [approvals()]')
+    expect(calls.diffs[0]).toContain('+const plugins = [toolLog(), approvals()]')
     expect(read(root, CHAT)).toBe(edited)
   })
 
@@ -121,6 +126,58 @@ describe('runUpdate', () => {
     const forced = await runUpdate({ cwd: root, force: true }, updateIO().io)
     expect(status(forced, CHAT)).toBe('overwritten')
     expect(read(root, CHAT)).toBe(readTemplate('ui/agent-chat.tsx'))
+  })
+
+  it('replaces an untouched 0.2.14 chat file with the thin wrapper', async () => {
+    const root = project({ [CHAT]: CHAT_0_2_14, [CSS]: readTemplate('ui/agent-chat.css') })
+    const { io, calls } = updateIO()
+    const result = await runUpdate({ cwd: root }, io)
+    expect(result.files.find((f) => f.file === CHAT)).toMatchObject({
+      status: 'updated',
+      from: '0.2.14',
+    })
+    expect(read(root, CHAT)).toBe(readTemplate('ui/agent-chat.tsx'))
+    expect(read(root, CHAT)).toContain("from 'dopus/react'")
+    expect(calls.choose).toEqual([])
+  })
+
+  it('keeps an edited 0.2.14 chat file and writes the thin wrapper next to it with --yes', async () => {
+    const edited = `${CHAT_0_2_14}\n// mine\n`
+    const root = project({ [CHAT]: edited, [CSS]: readTemplate('ui/agent-chat.css') })
+    const result = await runUpdate({ cwd: root, yes: true }, updateIO().io)
+    expect(status(result, CHAT)).toBe('saved-new')
+    expect(read(root, CHAT)).toBe(edited)
+    expect(read(root, `${CHAT}.new`)).toBe(readTemplate('ui/agent-chat.tsx'))
+    // The .new wrapper replaces the old file rather than merging into it; the CLI prints that step.
+    expect(result.oldChatUI).toBe(true)
+  })
+
+  it('flags an edited 0.2.14 chat file when it is kept or in a dry run too', async () => {
+    const edited = `${CHAT_0_2_14}\n// mine\n`
+    const files = { [CHAT]: edited, [CSS]: readTemplate('ui/agent-chat.css') }
+    const kept = await runUpdate({ cwd: project(files) }, updateIO(['skip']).io)
+    expect(status(kept, CHAT)).toBe('kept')
+    expect(kept.oldChatUI).toBe(true)
+    const dry = await runUpdate({ cwd: project(files), dryRun: true }, updateIO().io)
+    expect(status(dry, CHAT)).toBe('modified')
+    expect(dry.oldChatUI).toBe(true)
+  })
+
+  it('does not flag an edited wrapper or a replaced 0.2.14 chat file', async () => {
+    const wrapper = `${readTemplate('ui/agent-chat.tsx')}\n// mine\n`
+    const css = readTemplate('ui/agent-chat.css')
+    const edited = await runUpdate(
+      { cwd: project({ [CHAT]: wrapper, [CSS]: css }), yes: true },
+      updateIO().io,
+    )
+    expect(status(edited, CHAT)).toBe('saved-new')
+    expect(edited.oldChatUI).toBe(false)
+    const untouched = await runUpdate(
+      { cwd: project({ [CHAT]: CHAT_0_2_14, [CSS]: css }) },
+      updateIO().io,
+    )
+    expect(status(untouched, CHAT)).toBe('updated')
+    expect(untouched.oldChatUI).toBe(false)
   })
 
   it('compares an edited preset with the preset it came from', async () => {
