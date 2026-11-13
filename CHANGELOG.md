@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-11-13
 
 - Chat UI plugins: the chat UI now lives in the package (`dopus/react`: `AgentChat`, `AgentWidget`), and
   `components/agent/agent-chat.tsx` is a thin wrapper that picks plugins. `definePlugin` and the `ChatPlugin` types
