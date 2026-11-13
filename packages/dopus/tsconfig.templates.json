@@ -3,7 +3,11 @@
   "compilerOptions": {
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": []
+    "types": [],
+    "paths": {
+      "dopus/react": ["./src/react/index.ts"],
+      "dopus/plugins": ["./src/plugins/index.ts"]
+    }
   },
-  "include": ["templates", "test/css.d.ts"]
+  "include": ["templates", "src/react", "src/plugins", "test/css.d.ts"]
 }

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { detectPackageManager, detectProject } from '../src/init/detect.js'
 import { parseEnvKeys } from '../src/init/env.js'
 import { runInit } from '../src/init/run.js'
+import { readTemplate } from '../src/init/templates.js'
 import { fakeIO, nextApp } from './fixture.js'
 
 const read = (root: string, file: string) => readFileSync(join(root, file), 'utf8')
@@ -64,7 +65,10 @@ describe('runInit', () => {
     expect(result.created).toEqual(GENERATED)
     expect(read(root, 'agent/prompts/preset.ts')).toContain('support assistant')
     expect(read(root, 'agent/prompts/app.ts')).toContain('export const locales')
-    expect(read(root, 'components/agent/agent-chat.tsx')).toContain('export function AgentWidget')
+    expect(read(root, 'components/agent/agent-chat.tsx')).toBe(readTemplate('ui/agent-chat.tsx'))
+    expect(read(root, 'components/agent/agent-chat.tsx')).toContain("from 'dopus/react'")
+    expect(read(root, 'components/agent/agent-chat.css')).toBe(readTemplate('ui/agent-chat.css'))
+    expect(read(root, 'components/agent/agent-chat.css')).toContain('/* 11. Plugin: attachments')
     expect(read(root, 'agent.config.ts')).toContain("import preset from './agent/prompts/preset'")
     expect(result.widgetImport).toBe('../components/agent/agent-chat')
     expect(read(root, 'agent.config.ts')).toContain("import { openai } from '@ai-sdk/openai'")
