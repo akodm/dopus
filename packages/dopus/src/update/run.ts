@@ -223,3 +223,18 @@ export async function runUpdate(options: UpdateOptions, io: UpdateIO): Promise<U
   }
   return result
 }
+
+/**
+ * What to tell the user about an edited 0.2.x chat file (`oldChatUI`), for what is on disk: the wrapper saved as
+ * `.new`, the old file kept without one, or a dry run that wrote nothing.
+ */
+export function oldChatUINote(status: FileStatus): string {
+  const head =
+    'Your agent-chat.tsx is the old self-contained chat UI (0.2.x) and keeps working as it is.'
+  const tail =
+    'carry your changes over as CSS, labels or plugins. See "Upgrading from 0.2" in the README.'
+  if (status === 'saved-new') {
+    return `${head}\nTo move to the package UI, replace it with agent-chat.tsx.new and ${tail}`
+  }
+  return `${head}\nTo move to the package UI, run \`dopus update\` and save the new wrapper as agent-chat.tsx.new, then\nreplace yours with it and ${tail}`
+}

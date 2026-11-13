@@ -56,6 +56,8 @@ export interface ChatPlugin {
   beforeSend?: (draft: Draft) => Draft | false | Promise<Draft | false>
   /** Called after a message went out, so the plugin can clear its draft. */
   afterSend?: () => void
+  /** Called on "New chat", so the plugin can drop its draft (e.g. files picked but not sent). */
+  onNewChat?: () => void
 }
 
 /** Types a plugin object; returns it unchanged. */

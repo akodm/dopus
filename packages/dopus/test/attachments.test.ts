@@ -37,6 +37,30 @@ function sentFiles(draft: Draft | false): FileData[] {
 }
 
 describe('createAttachmentStore', () => {
+  it('clear() aborts running uploads and drops every chip ("New chat")', async () => {
+    const { upload, calls } = controlledUpload()
+    const store = createAttachmentStore({ upload })
+    store.add([file('a.pdf'), file('b.pdf')])
+    calls[0]?.resolve({ id: 'f-a' })
+    await flush()
+    store.add([file('big.pdf', 30 * 1024 * 1024)])
+    expect(store.getSnapshot()).toHaveLength(3)
+    store.clear()
+    expect(store.getSnapshot()).toEqual([])
+    expect(calls[1]?.signal.aborted).toBe(true)
+    // A late result for the aborted upload does not bring a chip back.
+    calls[1]?.resolve({ id: 'f-b' })
+    await flush()
+    expect(store.getSnapshot()).toEqual([])
+    expect(sentFiles(store.beforeSend(empty))).toEqual([])
+  })
+
+  it('the plugin clears its chips on "New chat"', () => {
+    const { upload } = controlledUpload()
+    const plugin = attachments({ upload })
+    expect(plugin.onNewChat).toBeTypeOf('function')
+  })
+
   it('sends files without text', async () => {
     const { upload, calls } = controlledUpload()
     const store = createAttachmentStore({ upload })

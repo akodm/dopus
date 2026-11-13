@@ -51,6 +51,8 @@ export interface AttachmentStore {
   beforeSend: (draft: Draft) => Draft | false
   /** Clear the sent files and the error entries. */
   afterSend: () => void
+  /** Drop every entry and abort running uploads ("New chat"). */
+  clear: () => void
 }
 
 const DEFAULT_MAX_FILES = 5
@@ -179,6 +181,12 @@ export function createAttachmentStore(options: AttachmentsOptions): AttachmentSt
       )
       if (next.length !== entries.length) set(next)
     },
+    clear() {
+      for (const controller of controllers.values()) controller.abort()
+      controllers.clear()
+      sentKeys = new Set()
+      if (entries.length > 0) set([])
+    },
   }
 }
 
@@ -230,7 +238,7 @@ function AttachmentComposer({
             >
               <span className="dopus-attachment-name">{entry.file.name}</span>{' '}
               {/* Announced when it changes, so a failed upload is heard, not only seen. */}
-              <span aria-live="polite">
+              <span className="dopus-attachment-status" aria-live="polite">
                 {entry.status === 'uploading'
                   ? labels.uploading
                   : entry.status === 'error'
@@ -268,5 +276,6 @@ export function attachments(options: AttachmentsOptions): ChatPlugin {
     },
     beforeSend: store.beforeSend,
     afterSend: store.afterSend,
+    onNewChat: store.clear,
   }
 }

@@ -9,7 +9,7 @@ import { InitError } from './init/detect.js'
 import { type InitIO, installArgs, runInit } from './init/run.js'
 import { PRESETS, type PresetId } from './init/templates.js'
 import { PROVIDERS, type ProviderId } from './providers.js'
-import { type FileStatus, runUpdate, type UpdateIO } from './update/run.js'
+import { type FileStatus, oldChatUINote, runUpdate, type UpdateIO } from './update/run.js'
 import { VERSION } from './version.js'
 
 const HELP = `dopus ${VERSION}
@@ -210,15 +210,8 @@ async function update(args: string[]) {
       .join('\n'),
     'Files',
   )
-  if (result.oldChatUI) {
-    p.log.info(
-      [
-        'Your agent-chat.tsx is the old self-contained chat UI (0.2.x) and keeps working as it is.',
-        'To move to the package UI, replace it with agent-chat.tsx.new and carry your changes over as CSS,',
-        'labels or plugins. See "Upgrading from 0.2" in the README.',
-      ].join('\n'),
-    )
-  }
+  const chat = result.files.find((f) => f.file.endsWith('agent-chat.tsx'))
+  if (result.oldChatUI && chat) p.log.info(oldChatUINote(chat.status))
   const otherNew = result.files.filter(
     (f) => f.status === 'saved-new' && !(result.oldChatUI && f.file.endsWith('agent-chat.tsx')),
   )

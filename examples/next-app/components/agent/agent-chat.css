@@ -431,7 +431,7 @@
 /* 11. Plugin: attachments
  * .dopus-attach (attach button), .dopus-attachments (chip list, on its own row above the input),
  * .dopus-attachment ([data-status="uploading"|"error"]), .dopus-attachment-name (cut with … when long),
- * .dopus-attachment-remove (x on a chip). Sent files are .dopus-file (section 4).
+ * .dopus-attachment-status (size, "Uploading…" or the error; kept on one line), .dopus-attachment-remove (x on a chip). Sent files are .dopus-file (section 4).
  */
 .dopus-attach {
   border: 1px solid var(--dopus-border);
@@ -472,6 +472,12 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The name gives way first; the status stays on one line. */
+.dopus-attachment-status {
+  flex: none;
   white-space: nowrap;
 }
 

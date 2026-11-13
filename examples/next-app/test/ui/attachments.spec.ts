@@ -174,3 +174,42 @@ test("a file picked but not sent does not follow into the next user's chat", asy
   await expect(chat(page).locator('.dopus-attachment')).toHaveCount(0)
   await expect(chat(page).getByText('gina-draft.txt')).toHaveCount(0)
 })
+
+test('"New chat" drops files picked but not sent', async ({ page, baseURL }) => {
+  await openChat(page, baseURL)
+  const input = chat(page).getByRole('textbox', { name: 'Ask anything…' })
+  await input.fill('who am I')
+  await input.press('Enter')
+  await expect(chat(page).getByText('✓ Get current user')).toBeVisible()
+  await fileInput(page).setInputFiles({
+    name: 'draft.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('not sent'),
+  })
+  await expect(chat(page).locator('.dopus-attachment', { hasText: 'draft.txt' })).toBeVisible()
+  await chat(page).getByRole('button', { name: 'New chat' }).click()
+  await expect(chat(page).locator('.dopus-message')).toHaveCount(0)
+  await expect(chat(page).locator('.dopus-attachment')).toHaveCount(0)
+  await expect(chat(page).getByRole('button', { name: 'Send' })).toBeDisabled()
+})
+
+test('a long-named chip keeps its status on one line', async ({ page, baseURL }) => {
+  await openChat(page, baseURL)
+  await fileInput(page).setInputFiles([
+    { name: 'a.txt', mimeType: 'text/plain', buffer: Buffer.from('a') },
+    {
+      name: `quarterly_sales_report_2026_final_v2_${'x'.repeat(60)}.xlsx`,
+      mimeType: 'text/plain',
+      buffer: Buffer.from('b'),
+    },
+  ])
+  const chips = chat(page).locator('.dopus-attachment[data-status="done"]')
+  await expect(chips).toHaveCount(2)
+  const short = await chips.nth(0).boundingBox()
+  const long = await chips.nth(1).boundingBox()
+  expect(Math.round(long?.height ?? 0)).toBe(Math.round(short?.height ?? 0))
+  // Clear the drafts so later tests start empty.
+  const remove = chat(page).getByRole('button', { name: /^Remove/ })
+  while ((await remove.count()) > 0) await remove.first().click()
+  await expect(chat(page).locator('.dopus-attachment')).toHaveCount(0)
+})

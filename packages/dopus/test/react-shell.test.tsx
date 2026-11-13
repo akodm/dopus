@@ -195,6 +195,22 @@ describe('waitsForApproval', () => {
     expect(waitsForApproval(asking, [approvalsPlugin])).toBe(true)
   })
 
+  it('keeps holding them after the user answered, until the approval has continued', () => {
+    // Answered but not yet sent back: a follow-up sent now would make the card stale, and the approved call
+    // would never run.
+    const answered: UIMessage = {
+      ...asking,
+      parts: [
+        {
+          ...(asking.parts[0] as object),
+          state: 'approval-responded',
+          approval: { id: 'ap-1', approved: true },
+        } as ChatPart,
+      ],
+    }
+    expect(waitsForApproval(answered, [approvalsPlugin])).toBe(true)
+  })
+
   it('does not hold them when no plugin shows approval cards (the card is invisible)', () => {
     expect(waitsForApproval(asking, [])).toBe(false)
     expect(waitsForApproval(asking, [definePlugin({ name: 'plain' })])).toBe(false)

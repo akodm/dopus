@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { readTemplate } from '../src/init/templates.js'
 import { unifiedDiff } from '../src/update/diff.js'
 import { templateHash, templateHistory } from '../src/update/history.js'
-import { type Choice, runUpdate, type UpdateIO } from '../src/update/run.js'
+import { type Choice, oldChatUINote, runUpdate, type UpdateIO } from '../src/update/run.js'
 import { nextApp } from './fixture.js'
 
 const UI_DEPS = { '@ai-sdk/react': '^4', 'react-markdown': '^10', 'remark-gfm': '^4' }
@@ -161,6 +161,16 @@ describe('runUpdate', () => {
     const dry = await runUpdate({ cwd: project(files), dryRun: true }, updateIO().io)
     expect(status(dry, CHAT)).toBe('modified')
     expect(dry.oldChatUI).toBe(true)
+  })
+
+  it('words the old-chat note for what is on disk: .new written, kept, or a dry run', () => {
+    expect(oldChatUINote('saved-new')).toContain('replace it with agent-chat.tsx.new')
+    for (const status of ['kept', 'modified'] as const) {
+      const note = oldChatUINote(status)
+      expect(note).not.toContain('replace it with agent-chat.tsx.new')
+      expect(note).toContain('dopus update')
+      expect(note).toContain('Upgrading from 0.2')
+    }
   })
 
   it('does not flag an edited wrapper or a replaced 0.2.14 chat file', async () => {

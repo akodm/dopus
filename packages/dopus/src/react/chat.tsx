@@ -100,16 +100,22 @@ export function requestBody(
 }
 
 /**
- * Whether job follow-ups wait for the user: an approval card is open in `last`. Without a plugin that shows
- * approval cards the card is invisible, so nothing waits on it.
+ * Whether job follow-ups wait for the user: an approval card in `last` is open, or answered but not yet sent back.
+ * Without a plugin that shows approval cards the card is invisible, so nothing waits on it.
  */
 export function waitsForApproval(
   last: UIMessage | undefined,
   plugins: readonly ChatPlugin[],
 ): boolean {
   if (!clientFeatures(plugins).approvals) return false
+  // Also while an answered card has not been sent back yet: a follow-up sent in that gap would make the card stale,
+  // and the approved call would never run.
   return (
-    last?.parts.some((part) => isToolUIPart(part) && part.state === 'approval-requested') ?? false
+    last?.parts.some(
+      (part) =>
+        isToolUIPart(part) &&
+        (part.state === 'approval-requested' || part.state === 'approval-responded'),
+    ) ?? false
   )
 }
 
@@ -400,6 +406,7 @@ export function AgentChat({
     clearError()
     setMessages([])
     setInput('')
+    for (const plugin of pluginsRef.current) plugin.onNewChat?.()
     Promise.resolve(historyRef.current?.save?.([])).catch((error) =>
       console.error('[dopus] history.save failed', error),
     )
