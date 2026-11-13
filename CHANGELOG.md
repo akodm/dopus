@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 — 2026-11-13
 
 - Fix: a background job that finished while an approval card was open could make the approved call not run. The
   follow-up went out in the moment between the user's answer and the approval being sent back, which made the card
