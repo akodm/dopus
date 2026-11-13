@@ -415,6 +415,9 @@ export const SIGN_IN_REASON =
 /** Reason recorded for a confirmation of a tool the signed-in user may not use (anymore). */
 export const NO_ACCESS_REASON = 'Not run: the user does not have access to this.'
 
+/** Reason recorded for a confirmation of a tool left out because this client cannot show approval cards. */
+export const NO_APPROVAL_UI_REASON = 'Not run: this chat cannot ask the user for approval.'
+
 /** Runtime prompt line for anonymous users when some tools are hidden from them. */
 export const SIGNED_OUT_NOTE =
   'Not signed in. Only features that work without an account are available; if the user asks for something else, tell them to sign in first.'
@@ -588,7 +591,7 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
     const messages = settleStaleApprovals(
       settleStaleApprovals(validated.data, byAccess, user ? NO_ACCESS_REASON : SIGN_IN_REASON),
       visible.hiddenByClient,
-      NO_ACCESS_REASON,
+      NO_APPROVAL_UI_REASON,
     )
     const tooLong = messages.some(
       (message) =>

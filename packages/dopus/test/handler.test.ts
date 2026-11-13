@@ -2,6 +2,7 @@ import type { LanguageModelV4StreamPart } from '@ai-sdk/provider'
 import type { UIMessage } from 'ai'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { NO_APPROVAL_UI_REASON } from '../src/agent.js'
 import {
   type AgentConfig,
   createAgentHandler,
@@ -1160,7 +1161,8 @@ describe('client capabilities (approvals plugin)', () => {
     )
     expect(cancelOrder).not.toHaveBeenCalled()
     expect(chunks).toContainEqual({ type: 'tool-output-denied', toolCallId: part.toolCallId })
-    expect(prompt(1)).toContain('does not have access')
+    expect(prompt(1)).toContain(NO_APPROVAL_UI_REASON)
+    expect(prompt(1)).not.toContain('does not have access')
     expect(onError).not.toHaveBeenCalled()
   })
 

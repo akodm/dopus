@@ -61,7 +61,7 @@ export interface AgentChatProps {
   history?: AgentChatHistory
   /**
    * Parts of the chat the app chooses (`dopus/plugins` or your own). Tried in array order. Create them once
-   * (module scope or `useMemo`), in a client component.
+   * (module scope or `useState(() => [...])`), in a client component.
    */
   plugins?: ChatPlugin[]
 }
@@ -97,6 +97,20 @@ export function requestBody(
   context: { page: string; locale: string },
 ): { context: { page: string; locale: string }; dopus: { approvals: boolean } } {
   return { context, dopus: clientFeatures(pluginsRef.current) }
+}
+
+/**
+ * Whether job follow-ups wait for the user: an approval card is open in `last`. Without a plugin that shows
+ * approval cards the card is invisible, so nothing waits on it.
+ */
+export function waitsForApproval(
+  last: UIMessage | undefined,
+  plugins: readonly ChatPlugin[],
+): boolean {
+  if (!clientFeatures(plugins).approvals) return false
+  return (
+    last?.parts.some((part) => isToolUIPart(part) && part.state === 'approval-requested') ?? false
+  )
 }
 
 /** A file reference in a sent message, read-only. Shown with or without the attachments plugin. */
@@ -272,10 +286,8 @@ export function AgentChat({
 
   useEffect(() => {
     if (readyJobs.length === 0 || status !== 'ready' || sending) return
-    const last = messages.at(-1)
     // Wait while an approval card is open: the user answers that first.
-    if (last?.parts.some((part) => isToolUIPart(part) && part.state === 'approval-requested'))
-      return
+    if (waitsForApproval(messages.at(-1), pluginsRef.current)) return
     const notice = {
       role: 'user' as const,
       parts: readyJobs.map((id) => ({ type: JOB_PART, data: { id } }) as ChatPart),

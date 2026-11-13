@@ -1,7 +1,7 @@
 import type { UIMessage } from 'ai'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { AgentChat, MessageView, requestBody } from '../src/react/chat.js'
+import { AgentChat, MessageView, requestBody, waitsForApproval } from '../src/react/chat.js'
 import { DEFAULT_LABELS } from '../src/react/labels.js'
 import {
   type ChatPart,
@@ -172,6 +172,37 @@ describe('requestBody', () => {
     expect(body().dopus).toEqual({ approvals: true })
     pluginsRef.current = []
     expect(body().dopus).toEqual({ approvals: false })
+  })
+})
+
+describe('waitsForApproval', () => {
+  const asking: UIMessage = {
+    id: 'm2',
+    role: 'assistant',
+    parts: [
+      {
+        type: 'tool-cancelOrder',
+        toolCallId: 'call-2',
+        state: 'approval-requested',
+        input: { orderId: 'A-1' },
+        approval: { id: 'ap-1' },
+      } as ChatPart,
+    ],
+  }
+  const approvalsPlugin = definePlugin({ name: 'approvals', capabilities: { approvals: true } })
+
+  it('holds job follow-ups while an approval card is open', () => {
+    expect(waitsForApproval(asking, [approvalsPlugin])).toBe(true)
+  })
+
+  it('does not hold them when no plugin shows approval cards (the card is invisible)', () => {
+    expect(waitsForApproval(asking, [])).toBe(false)
+    expect(waitsForApproval(asking, [definePlugin({ name: 'plain' })])).toBe(false)
+  })
+
+  it('does not hold them without an open card', () => {
+    expect(waitsForApproval(toolMessage, [approvalsPlugin])).toBe(false)
+    expect(waitsForApproval(undefined, [approvalsPlugin])).toBe(false)
   })
 })
 

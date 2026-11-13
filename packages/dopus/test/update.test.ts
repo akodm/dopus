@@ -148,6 +148,36 @@ describe('runUpdate', () => {
     expect(status(result, CHAT)).toBe('saved-new')
     expect(read(root, CHAT)).toBe(edited)
     expect(read(root, `${CHAT}.new`)).toBe(readTemplate('ui/agent-chat.tsx'))
+    // The .new wrapper replaces the old file rather than merging into it; the CLI prints that step.
+    expect(result.oldChatUI).toBe(true)
+  })
+
+  it('flags an edited 0.2.14 chat file when it is kept or in a dry run too', async () => {
+    const edited = `${CHAT_0_2_14}\n// mine\n`
+    const files = { [CHAT]: edited, [CSS]: readTemplate('ui/agent-chat.css') }
+    const kept = await runUpdate({ cwd: project(files) }, updateIO(['skip']).io)
+    expect(status(kept, CHAT)).toBe('kept')
+    expect(kept.oldChatUI).toBe(true)
+    const dry = await runUpdate({ cwd: project(files), dryRun: true }, updateIO().io)
+    expect(status(dry, CHAT)).toBe('modified')
+    expect(dry.oldChatUI).toBe(true)
+  })
+
+  it('does not flag an edited wrapper or a replaced 0.2.14 chat file', async () => {
+    const wrapper = `${readTemplate('ui/agent-chat.tsx')}\n// mine\n`
+    const css = readTemplate('ui/agent-chat.css')
+    const edited = await runUpdate(
+      { cwd: project({ [CHAT]: wrapper, [CSS]: css }), yes: true },
+      updateIO().io,
+    )
+    expect(status(edited, CHAT)).toBe('saved-new')
+    expect(edited.oldChatUI).toBe(false)
+    const untouched = await runUpdate(
+      { cwd: project({ [CHAT]: CHAT_0_2_14, [CSS]: css }) },
+      updateIO().io,
+    )
+    expect(status(untouched, CHAT)).toBe('updated')
+    expect(untouched.oldChatUI).toBe(false)
   })
 
   it('compares an edited preset with the preset it came from', async () => {

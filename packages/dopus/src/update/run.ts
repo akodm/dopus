@@ -42,6 +42,11 @@ export interface UpdateResult {
   installed: string[]
   /** Dependencies the new templates need that are not installed (when not installed by this run). */
   missingDependencies: string[]
+  /**
+   * The chat file is an edited copy of the old self-contained UI (0.2.x, no `dopus/react` import) and was left in
+   * place. The new wrapper replaces it rather than merging into it.
+   */
+  oldChatUI: boolean
 }
 
 interface Target {
@@ -52,6 +57,9 @@ interface Target {
   /** Create the file when it does not exist. */
   create?: boolean
 }
+
+/** The thin wrapper (0.3+) imports the package UI; the 0.2.x chat file is self-contained. */
+const IMPORTS_DOPUS_REACT = /from\s+['"]dopus\/react['"]/
 
 /** Packages the chat UI imports (the rest were added by `init` and are needed by the route too). */
 const UI_DEPENDENCIES: [string, string][] = [
@@ -84,7 +92,12 @@ export async function runUpdate(options: UpdateOptions, io: UpdateIO): Promise<U
   const at = (path: string) => join(project.configDir, path)
   const read = (file: string) => readFileSync(join(root, file), 'utf8')
   const exists = (file: string) => existsSync(join(root, file))
-  const result: UpdateResult = { files: [], installed: [], missingDependencies: [] }
+  const result: UpdateResult = {
+    files: [],
+    installed: [],
+    missingDependencies: [],
+    oldChatUI: false,
+  }
 
   const chatFile = at('components/agent/agent-chat.tsx')
   const routeFile = join(project.appDir, 'api', 'agent', 'route.ts')
@@ -170,6 +183,13 @@ export async function runUpdate(options: UpdateOptions, io: UpdateIO): Promise<U
       result.files.push({ file, status: 'kept' })
     }
   }
+
+  const chatKept = result.files.some(
+    (f) =>
+      f.file === chatFile &&
+      (f.status === 'saved-new' || f.status === 'kept' || f.status === 'modified'),
+  )
+  result.oldChatUI = chatKept && !IMPORTS_DOPUS_REACT.test(read(chatFile))
 
   const chatReplaced = result.files.some(
     (f) => f.file === chatFile && (f.status === 'updated' || f.status === 'overwritten'),

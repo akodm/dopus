@@ -32,9 +32,12 @@ export function isAttachedFile(data: unknown): data is AttachedFile {
   )
 }
 
-/** Server-written text for an attached file. Control characters in the name become spaces before quoting. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/g
+
+/** Server-written text for an attached file. Control characters in the name and type become spaces. */
 export function fileNotice(file: AttachedFile): string {
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
-  const name = file.name.replace(/[\u0000-\u001f\u007f]/g, ' ')
-  return `The user attached a file: ${JSON.stringify(name)} (${file.type || 'unknown type'}, ${file.size} bytes), fileId ${JSON.stringify(file.id)}. Read it with a tool that takes the fileId; you cannot see its contents otherwise.`
+  const name = file.name.replace(CONTROL_CHARACTERS, ' ')
+  const type = file.type.replace(CONTROL_CHARACTERS, ' ')
+  return `The user attached a file: ${JSON.stringify(name)} (${type || 'unknown type'}, ${file.size} bytes), fileId ${JSON.stringify(file.id)}. Read it with a tool that takes the fileId; you cannot see its contents otherwise.`
 }
