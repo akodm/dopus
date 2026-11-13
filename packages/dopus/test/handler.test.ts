@@ -1058,7 +1058,10 @@ describe('tools limited by access (roles)', () => {
 })
 
 describe('client capabilities (approvals plugin)', () => {
-  function setup(steps: LanguageModelV4StreamPart[][], options: { identify?: boolean } = {}) {
+  function setup(
+    steps: LanguageModelV4StreamPart[][],
+    options: { identify?: boolean; withPrivate?: boolean } = {},
+  ) {
     const cancelOrder = vi.fn(async (input: { orderId: string }) => ({ cancelled: input.orderId }))
     const refund = vi.fn(async () => ({ refunded: true }))
     const getProduct = vi.fn(async () => ({ name: 'Keyboard' }))
@@ -1085,6 +1088,14 @@ describe('client capabilities (approvals plugin)', () => {
             confirm: (input: { amount: number }) => input.amount > 10,
             public: true,
           }),
+          ...(options.withPrivate
+            ? {
+                listOrders: defineTool(async () => ({ orders: [] }), {
+                  description: 'List orders',
+                  input: z.object({}),
+                }),
+              }
+            : {}),
         },
         ...(options.identify === false ? {} : { identify: () => undefined }),
         approvalSecret: 'test-secret-0123456789abcdef',
@@ -1154,8 +1165,17 @@ describe('client capabilities (approvals plugin)', () => {
   })
 
   it('does not add the signed-out note for tools hidden only by capability', async () => {
-    const { POST, prompt } = setup([textStep('ok'), textStep('ok')])
+    // Anonymous; the hidden tools (cancelOrder, refund) are public, so none is hidden by sign-in.
+    const { POST, offered, prompt } = setup([textStep('ok')])
     await readChunks(await POST(chatRequest([userMessage('hi')], { body: { dopus: {} } })))
+    expect(offered(0)).toEqual(['getProduct'])
     expect(prompt(0)).not.toContain('Not signed in.')
+  })
+
+  it('still adds the signed-out note when a tool is hidden by sign-in as well', async () => {
+    const { POST, offered, prompt } = setup([textStep('ok')], { withPrivate: true })
+    await readChunks(await POST(chatRequest([userMessage('hi')], { body: { dopus: {} } })))
+    expect(offered(0)).toEqual(['getProduct'])
+    expect(prompt(0)).toContain('Not signed in.')
   })
 })
