@@ -10,14 +10,18 @@ import {
   AgentWidget,
 } from './agent-chat'
 
-/** Finished background jobs arrive over SSE (app/api/jobs). With Supabase Realtime, only subscribe() changes. */
-const channel: AgentChannel = {
+/**
+ * Finished background jobs arrive over SSE: the app's own (app/api/jobs), or the outside worker's stream when the
+ * layout passes `jobEvents` (worker/server.mjs). With Supabase Realtime, only subscribe() changes.
+ */
+const sseChannel = (url: string): AgentChannel => ({
   subscribe(finished) {
-    const events = new EventSource('/api/jobs')
+    const events = new EventSource(url)
     events.onmessage = (event) => finished(JSON.parse(event.data).jobId)
     return () => events.close()
   },
-}
+})
+const appChannel = sseChannel('/api/jobs')
 
 /** The app's own storage for attached files (app/api/files); the message carries only the returned ID. */
 async function upload(file: File, { signal }: { signal: AbortSignal }) {
@@ -46,8 +50,14 @@ const serverHistory: AgentChatHistory = {
 export function Agent({
   user,
   savedOnServer,
+  jobEvents,
   ...props
-}: AgentChatProps & { user: string | null; savedOnServer?: boolean }) {
+}: AgentChatProps & { user: string | null; savedOnServer?: boolean; jobEvents?: string }) {
+  const channel = useMemo(
+    () =>
+      jobEvents && user ? sseChannel(`${jobEvents}?user=${encodeURIComponent(user)}`) : appChannel,
+    [jobEvents, user],
+  )
   const history = useMemo(
     () =>
       !user ? undefined : savedOnServer ? serverHistory : sessionHistory(`dopus-chat:${user}`),

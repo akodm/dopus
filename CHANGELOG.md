@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Fix: a background job that finished while an approval card was open could make the approved call not run. The
+  follow-up went out in the moment between the user's answer and the approval being sent back, which made the card
+  stale. Follow-ups now also wait while an answered card has not been sent back. (Since 0.2.6.)
+- "New chat" drops files picked but not sent. Plugins get an `onNewChat` hook for their own drafts.
+- Attachment chips keep their status ("Uploading…", the size, the error) on one line; a long name gives way instead.
+  New class `.dopus-attachment-status` in `agent-chat.css` (`dopus update` refreshes an untouched copy).
+- `dopus update`: the note for an edited 0.2.x chat file now fits what is on disk. It only says "replace it with
+  agent-chat.tsx.new" when that file was written; when you skipped, or in a dry run, it says how to get one.
+- Example app: background jobs can run on a separate worker server (`worker/server.mjs`) that reports back to the app
+  and rings the browser on its own stream, with browser tests for it (`test:ui:channel`).
+
 ## 0.3.0 — 2026-11-13
 
 - Chat UI plugins: the chat UI now lives in the package (`dopus/react`: `AgentChat`, `AgentWidget`), and

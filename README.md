@@ -437,7 +437,7 @@ attachments({ upload, accept: 'image/*,.pdf,.xlsx', maxFiles: 3, maxSize: 5 * 10
 
 `definePlugin` types a plugin object. The hooks are `renderPart` (tool parts and data parts), `renderFooter` (after the
 messages), `renderComposer` (next to the send button), `beforeSend` / `afterSend` (add parts to a message, or hold it
-back) and `capabilities`. `humanizeToolName` and `JsonBlock` are exported for building cards.
+back), `onNewChat` (drop a draft on "New chat") and `capabilities`. `humanizeToolName` and `JsonBlock` are exported for building cards.
 
 A plugin earlier in the array wins, so a plugin for one tool goes in front of `approvals()`. A card for a
 `deleteUser` tool that says who will be deleted:
@@ -847,6 +847,13 @@ Any source works: `new EventSource(url)`, a WebSocket, or a `setInterval` that a
 `finished(jobId)` for each one; return a function that stops listening. Then use `<Agent />` in your layout instead of
 `<AgentWidget />`.
 
+The channel does not have to be your Next.js app. The example has a separate worker server
+(`examples/next-app/worker/server.mjs`): the app hands it the job, the worker reports the result back to the app
+(`app/api/jobs/done`, with a shared secret), then rings the browser on its own SSE stream. Its browser tests
+(`pnpm --filter next-app test:ui:channel`) start both servers and check that the agent continues by itself, that a job
+finishing while an approval card is open waits for the answer and the approved call still runs, and that another
+user's chat is not rung.
+
 **How it is kept safe:**
 
 - **The channel is a doorbell, not a mailbox.** Only the job ID goes from the channel to the server. The text the model
@@ -856,7 +863,8 @@ Any source works: `new EventSource(url)`, a WebSocket, or a `setInterval` that a
   reported yet. Another tab, or a new chat, ignores them.
 - **Follow-ups are capped.** After `maxJobFollowUps` (default 3) automatic turns in a row, a finished job is shown in
   the chat but the agent waits for the user's next message, so a job that starts another job cannot loop.
-- **Approvals still apply.** An automatic turn stops at the approval card like any other.
+- **Approvals still apply.** An automatic turn stops at the approval card like any other, and a finished job waits
+  while a card is open or answered but not yet sent back, so the follow-up never makes an approved call stale.
 
 **Limits:**
 

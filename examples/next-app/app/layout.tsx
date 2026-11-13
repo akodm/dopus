@@ -15,6 +15,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           key={session?.user ?? 'anonymous'}
           user={session?.user ?? null}
           savedOnServer={Boolean(chatDb)}
+          // The outside worker's event stream (worker/server.mjs), when jobs run there.
+          jobEvents={process.env.EXAMPLE_JOB_EVENTS_URL}
           suggestions={['Who am I?', 'List my orders', 'Cancel o-1']}
         />
       </body>

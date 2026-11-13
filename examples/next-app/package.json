@@ -10,7 +10,9 @@
     "test:e2e": "vitest run",
     "test:live": "node test/live-llm.ts",
     "test:ui": "playwright test",
-    "test:ui:db": "playwright test -c playwright.db.config.ts"
+    "test:ui:db": "playwright test -c playwright.db.config.ts",
+    "test:ui:channel": "playwright test -c playwright.channel.config.ts",
+    "worker": "node worker/server.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.99",

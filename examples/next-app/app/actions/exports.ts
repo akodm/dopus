@@ -8,7 +8,7 @@ import { getSession } from '@/lib/session'
 export async function startExport() {
   const session = await getSession()
   if (!session) redirect('/login')
-  const job = startJob(session.user)
+  const job = await startJob(session.user)
   return { jobId: job.id, status: job.status }
 }
 
