@@ -29,12 +29,6 @@ async function upload(file: File, { signal }: { signal: AbortSignal }) {
 }
 
 /**
- * The template's plugins (agent-chat.tsx) plus attachments, which need the app's upload. Passing `plugins` here
- * replaces the template's list, so agent-chat.tsx stays identical to what `dopus init` copies.
- */
-const plugins = [toolLog(), approvals(), attachments({ upload })]
-
-/**
  * The conversation survives reloads in this tab. Keyed by user, so after a sign-out another user in the same tab
  * does not see it. To keep it in your database instead, save it in the agent's onFinish and load it here.
  */
@@ -59,5 +53,9 @@ export function Agent({
       !user ? undefined : savedOnServer ? serverHistory : sessionHistory(`dopus-chat:${user}`),
     [user, savedOnServer],
   )
+  // The template's plugins (agent-chat.tsx) plus attachments, which need the app's upload. Passing `plugins` here
+  // replaces the template's list, so agent-chat.tsx stays identical to what `dopus init` copies. Created per mount,
+  // not at module scope: the layout remounts Agent per user (`key`), so files picked but not sent stay with that user.
+  const plugins = useMemo(() => [toolLog(), approvals(), attachments({ upload })], [])
   return <AgentWidget {...props} plugins={plugins} channel={channel} history={history} />
 }

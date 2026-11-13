@@ -11,6 +11,7 @@ export async function POST(request: Request) {
   const form = await request.formData().catch(() => null)
   const file = form?.get('file')
   if (!(file instanceof File)) return new Response('Expected a file field', { status: 400 })
+  // Example only: a real app caps the size and checks the type before storing.
   const { id, name, type, size } = fileStore.add({
     owner: session.user,
     name: file.name,

@@ -102,3 +102,31 @@ test('requests carry dopus.approvals', async ({ page, baseURL }) => {
   expect(body.dopus?.approvals).toBe(true)
   await expect(chat(page).getByText('✓ Get current user')).toBeVisible()
 })
+
+test("a file picked but not sent does not follow into the next user's chat", async ({
+  page,
+  baseURL,
+}) => {
+  await openChat(page, baseURL)
+  await fileInput(page).setInputFiles({
+    name: 'gina-draft.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('not sent'),
+  })
+  await expect(chat(page).locator('.dopus-attachment', { hasText: 'gina-draft.txt' })).toBeVisible()
+  // Sign out is a server action: the page stays loaded (no full reload) and the layout remounts the chat.
+  await page.evaluate(() => {
+    ;(window as unknown as { __sameDocument?: boolean }).__sameDocument = true
+  })
+  await page.getByRole('button', { name: 'Sign out' }).click()
+  await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible()
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __sameDocument?: boolean }).__sameDocument === true,
+    ),
+  ).toBe(true)
+  await page.getByRole('button', { name: 'Open assistant' }).click()
+  await expect(chat(page).getByRole('button', { name: 'Attach file' })).toBeVisible()
+  await expect(chat(page).locator('.dopus-attachment')).toHaveCount(0)
+  await expect(chat(page).getByText('gina-draft.txt')).toHaveCount(0)
+})
