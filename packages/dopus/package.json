@@ -57,7 +57,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "tsdown && node scripts/check-build.mjs",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsdown && node scripts/check-build.mjs",
     "dev": "tsdown --watch",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.templates.json",
     "test": "vitest run",

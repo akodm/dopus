@@ -7,7 +7,6 @@ export default defineConfig([
     platform: 'node',
     target: 'node22',
     dts: true,
-    clean: true,
     fixedExtension: false,
   },
   {
@@ -17,7 +16,6 @@ export default defineConfig([
     format: 'esm',
     platform: 'neutral',
     dts: true,
-    clean: false,
     fixedExtension: false,
     banner: "'use client'",
     deps: {
