@@ -17,6 +17,13 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from 'ai'
+import {
+  type AttachedFile,
+  FILE_PART,
+  fileNotice,
+  isAttachedFile,
+  MAX_FILES_PER_MESSAGE,
+} from './files.js'
 import { isJobId, JOB_PART, jobNotice, withJob } from './job.js'
 import { ToolError, translateNextError } from './next-errors.js'
 import { buildInstructions, type PromptLayers, type RuntimeContext } from './prompt.js'
@@ -596,6 +603,16 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
       ),
     )
     if (badJob) return errorResponse(400, 'Invalid job notice')
+    const badFile = messages.some((message) => {
+      const files = message.parts.filter((part) => part.type === FILE_PART)
+      return (
+        files.length > 0 &&
+        (message.role !== 'user' ||
+          files.length > MAX_FILES_PER_MESSAGE ||
+          !files.every((part) => isAttachedFile((part as { data?: unknown }).data)))
+      )
+    })
+    if (badFile) return errorResponse(400, 'Invalid file attachment')
 
     const early = await config.beforeRequest?.({ request, user, messages })
     if (early instanceof Response) return early
@@ -650,11 +667,16 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
       instructions: buildInstructions(config.prompt, runtime),
       messages: await convertToModelMessages(messages, {
         tools,
-        // A finished-job notice becomes server-written text; other data parts stay out of the prompt.
-        convertDataPart: (part) =>
-          part.type === JOB_PART
-            ? { type: 'text', text: jobNotice((part.data as { id: string }).id) }
-            : undefined,
+        // Job notices and file references become server-written text; other data parts stay out of the prompt.
+        convertDataPart: (part) => {
+          if (part.type === JOB_PART) {
+            return { type: 'text', text: jobNotice((part.data as { id: string }).id) }
+          }
+          if (part.type === FILE_PART) {
+            return { type: 'text', text: fileNotice(part.data as AttachedFile) }
+          }
+          return undefined
+        },
       }),
       tools,
       toolApproval,

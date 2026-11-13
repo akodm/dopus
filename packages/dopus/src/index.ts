@@ -7,6 +7,7 @@ export {
   type HandlerOptions,
   type ToolCallEvent,
 } from './agent.js'
+export { type AttachedFile, FILE_PART } from './files.js'
 export { ToolError } from './next-errors.js'
 export {
   buildInstructions,

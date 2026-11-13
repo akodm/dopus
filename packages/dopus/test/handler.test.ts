@@ -1179,3 +1179,54 @@ describe('client capabilities (approvals plugin)', () => {
     expect(prompt(0)).toContain('Not signed in.')
   })
 })
+
+describe('file attachments', () => {
+  const file = (id: unknown = 'f1') => ({
+    type: 'data-dopus-file' as const,
+    data: { id, name: 'sales.xlsx', type: 'text/csv', size: 12 },
+  })
+  const setup = () => {
+    const model = scriptedModel(textStep('ok'))
+    const POST = createAgentHandler(defineAgent({ model, tools: {}, ...silent }))
+    return { model, POST }
+  }
+
+  it('turns a file part into a server-written notice', async () => {
+    const { model, POST } = setup()
+    const message = {
+      id: 'u1',
+      role: 'user',
+      parts: [{ type: 'text', text: 'look' }, file()],
+    } as UIMessage
+    const response = await POST(chatRequest([message]))
+    expect(response.status).toBe(200)
+    await readChunks(response)
+    expect(JSON.stringify(model.doStreamCalls[0]?.prompt)).toContain(
+      'The user attached a file: \\"sales.xlsx\\" (text/csv, 12 bytes), fileId \\"f1\\".',
+    )
+  })
+
+  it('rejects more than 10 files in a message', async () => {
+    const { POST } = setup()
+    const message = {
+      id: 'u1',
+      role: 'user',
+      parts: Array.from({ length: 11 }, () => file()),
+    } as UIMessage
+    const response = await POST(chatRequest([message]))
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ error: 'Invalid file attachment' })
+  })
+
+  it('rejects a file part with a non-string id', async () => {
+    const { POST } = setup()
+    const message = { id: 'u1', role: 'user', parts: [file(3)] } as UIMessage
+    expect((await POST(chatRequest([message]))).status).toBe(400)
+  })
+
+  it('rejects a file part on an assistant message', async () => {
+    const { POST } = setup()
+    const message = { id: 'a1', role: 'assistant', parts: [file()] } as UIMessage
+    expect((await POST(chatRequest([userMessage('hi'), message]))).status).toBe(400)
+  })
+})
