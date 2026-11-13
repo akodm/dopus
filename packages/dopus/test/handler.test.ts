@@ -1056,3 +1056,106 @@ describe('tools limited by access (roles)', () => {
     ).toThrow(/both `public` and limited by `access`/)
   })
 })
+
+describe('client capabilities (approvals plugin)', () => {
+  function setup(steps: LanguageModelV4StreamPart[][], options: { identify?: boolean } = {}) {
+    const cancelOrder = vi.fn(async (input: { orderId: string }) => ({ cancelled: input.orderId }))
+    const refund = vi.fn(async () => ({ refunded: true }))
+    const getProduct = vi.fn(async () => ({ name: 'Keyboard' }))
+    const onError = vi.fn()
+    const model = scriptedModel(...steps)
+    const POST = createAgentHandler(
+      defineAgent({
+        model,
+        tools: {
+          getProduct: defineTool(getProduct, {
+            description: 'Product info',
+            input: z.object({}),
+            public: true,
+          }),
+          cancelOrder: defineTool(cancelOrder, {
+            description: 'Cancel an order',
+            input: z.object({ orderId: z.string() }),
+            confirm: true,
+            public: true,
+          }),
+          refund: defineTool(refund, {
+            description: 'Refund an order',
+            input: z.object({ amount: z.number() }),
+            confirm: (input: { amount: number }) => input.amount > 10,
+            public: true,
+          }),
+        },
+        ...(options.identify === false ? {} : { identify: () => undefined }),
+        approvalSecret: 'test-secret-0123456789abcdef',
+        onError,
+      }),
+    )
+    const offered = (call: number) =>
+      (model.doStreamCalls[call]?.tools ?? []).map((t) => ('name' in t ? t.name : ''))
+    const prompt = (call: number) => JSON.stringify(model.doStreamCalls[call]?.prompt)
+    return { POST, model, cancelOrder, onError, offered, prompt }
+  }
+
+  it('offers confirm tools when the body has no dopus field (0.2.x clients)', async () => {
+    const { POST, offered } = setup([textStep('ok')])
+    await readChunks(await POST(chatRequest([userMessage('hi')])))
+    expect(offered(0)).toContain('cancelOrder')
+  })
+
+  it('offers confirm tools when dopus.approvals is true', async () => {
+    const { POST, offered } = setup([textStep('ok')])
+    await readChunks(
+      await POST(chatRequest([userMessage('hi')], { body: { dopus: { approvals: true } } })),
+    )
+    expect(offered(0)).toContain('cancelOrder')
+  })
+
+  it('hides confirm tools when the client has no approvals UI', async () => {
+    const { POST, offered, prompt } = setup([textStep('ok')])
+    await readChunks(await POST(chatRequest([userMessage('hi')], { body: { dopus: {} } })))
+    expect(offered(0)).toEqual(['getProduct'])
+    expect(prompt(0)).not.toContain('cancelOrder')
+  })
+
+  it('hides a tool whose confirm is a function too', async () => {
+    const { POST, offered, prompt } = setup([textStep('ok')])
+    await readChunks(
+      await POST(chatRequest([userMessage('hi')], { body: { dopus: { approvals: false } } })),
+    )
+    expect(offered(0)).not.toContain('refund')
+    expect(prompt(0)).not.toContain('refund')
+  })
+
+  it('settles an approved card for a confirm tool as not run when approvals is false', async () => {
+    const { POST, cancelOrder, onError, prompt } = setup([
+      toolCallStep('cancelOrder', { orderId: 'o1' }),
+      textStep('Cancelled.'),
+      textStep('Sorry.'),
+    ])
+    const first = userMessage('cancel o1')
+    const asked = await assistantMessage(await readChunks(await POST(chatRequest([first]))))
+    const part = asked.parts.find((p) => p.type === 'tool-cancelOrder') as {
+      state: string
+      toolCallId: string
+      approval: { approved?: boolean }
+    }
+    expect(part.state).toBe('approval-requested')
+    part.state = 'approval-responded'
+    part.approval = { ...part.approval, approved: true }
+
+    const chunks = await readChunks(
+      await POST(chatRequest([first, asked], { body: { dopus: {} } })),
+    )
+    expect(cancelOrder).not.toHaveBeenCalled()
+    expect(chunks).toContainEqual({ type: 'tool-output-denied', toolCallId: part.toolCallId })
+    expect(prompt(1)).toContain('does not have access')
+    expect(onError).not.toHaveBeenCalled()
+  })
+
+  it('does not add the signed-out note for tools hidden only by capability', async () => {
+    const { POST, prompt } = setup([textStep('ok'), textStep('ok')])
+    await readChunks(await POST(chatRequest([userMessage('hi')], { body: { dopus: {} } })))
+    expect(prompt(0)).not.toContain('Not signed in.')
+  })
+})

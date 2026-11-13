@@ -248,9 +248,11 @@ export async function visibleTools(
   config: Pick<AgentConfig, 'tools' | 'identify'>,
   user: AgentUser | undefined,
   report?: (error: unknown) => void,
+  features?: ClientFeatures,
 ) {
   const tools: DopusToolSet = {}
   const hidden: string[] = []
+  const hiddenByClient: string[] = []
   for (const [name, t] of Object.entries(config.tools)) {
     const { access } = t.options
     let allowed: boolean
@@ -265,10 +267,14 @@ export async function visibleTools(
         allowed = false
       }
     }
-    if (allowed) tools[name] = t
-    else hidden.push(name)
+    if (!allowed) hidden.push(name)
+    else if (features?.approvals === false && t.options.confirm) {
+      hidden.push(name)
+      hiddenByClient.push(name)
+    } else tools[name] = t
   }
-  return { tools, hidden }
+  // `hiddenByClient` is a subset of `hidden`: tools this user may use, but whose client cannot show an approval card.
+  return { tools, hidden, hiddenByClient }
 }
 
 interface BuildContext {
@@ -382,6 +388,17 @@ export function readClientContext(body: unknown, request: Request): ClientContex
   const fromHeader = request.headers.get('accept-language')?.split(',')[0]?.split(';')[0]?.trim()
   const locale = [clean(raw.locale, 35), fromHeader].find((tag) => tag && LOCALE_TAG.test(tag))
   return { locale, page: clean(raw.page, 200) }
+}
+
+/** What the browser's chat UI can show. Absent (0.2.x clients, direct API callers): everything. */
+export interface ClientFeatures {
+  approvals: boolean
+}
+
+export function readClientFeatures(body: unknown): ClientFeatures {
+  const raw = (body as { dopus?: unknown } | null)?.dopus
+  if (typeof raw !== 'object' || raw === null) return { approvals: true }
+  return { approvals: (raw as { approvals?: unknown }).approvals === true }
 }
 
 /** Reason recorded for a confirmation of a tool that needs sign-in, answered by a user who is not signed in. */
@@ -546,7 +563,8 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
     }
 
     const user = await config.identify?.(request)
-    const visible = await visibleTools(config, user, report)
+    const features = readClientFeatures(body)
+    const visible = await visibleTools(config, user, report, features)
     const { tools, toolApproval } = buildTools(visible.tools, {
       user,
       report,
@@ -559,10 +577,11 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
     if (!validated.success) {
       return errorResponse(400, 'Invalid messages')
     }
+    const byAccess = visible.hidden.filter((name) => !visible.hiddenByClient.includes(name))
     const messages = settleStaleApprovals(
-      validated.data,
-      visible.hidden,
-      user ? NO_ACCESS_REASON : SIGN_IN_REASON,
+      settleStaleApprovals(validated.data, byAccess, user ? NO_ACCESS_REASON : SIGN_IN_REASON),
+      visible.hiddenByClient,
+      NO_ACCESS_REASON,
     )
     const tooLong = messages.some(
       (message) =>
@@ -606,7 +625,7 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
     const runtime = {
       ...client,
       // Anonymous only: a signed-in user is never told that tools were held back.
-      ...(!user && visible.hidden.length > 0 ? { access: SIGNED_OUT_NOTE } : {}),
+      ...(!user && byAccess.length > 0 ? { access: SIGNED_OUT_NOTE } : {}),
       ...(await config.runtime?.(request, { user, client })),
     }
     const approvalSecret = config.approvalSecret ?? process.env.DOPUS_APPROVAL_SECRET
