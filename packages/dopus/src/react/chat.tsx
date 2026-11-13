@@ -205,6 +205,14 @@ export function AgentChat({
   const [input, setInput] = useState('')
   const listRef = useRef<HTMLDivElement>(null)
   const busy = status === 'submitted' || status === 'streaming'
+  // Read after an async beforeSend, when the status this render saw may be out of date.
+  const statusRef = useRef(status)
+  useEffect(() => {
+    statusRef.current = status
+  })
+  // True while plugins prepare a draft (beforeSend may wait, e.g. for an upload); Send looks disabled and job
+  // follow-ups wait, so two requests never overlap.
+  const [sending, setSending] = useState(false)
 
   // Chat history: restore once on mount (after hydration), then save whenever the chat settles.
   const historyRef = useRef(history)
@@ -263,7 +271,7 @@ export function AgentChat({
   }, [messages, finishedJobs])
 
   useEffect(() => {
-    if (readyJobs.length === 0 || status !== 'ready') return
+    if (readyJobs.length === 0 || status !== 'ready' || sending) return
     const last = messages.at(-1)
     // Wait while an approval card is open: the user answers that first.
     if (last?.parts.some((part) => isToolUIPart(part) && part.state === 'approval-requested'))
@@ -284,7 +292,7 @@ export function AgentChat({
     } else {
       sendMessage(notice)
     }
-  }, [readyJobs, status, messages, maxJobFollowUps, sendMessage, setMessages])
+  }, [readyJobs, status, sending, messages, maxJobFollowUps, sendMessage, setMessages])
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll whenever messages change
   useEffect(() => {
@@ -313,15 +321,16 @@ export function AgentChat({
   // Only plugins still attached count, so one that was removed cannot hold Send back.
   const draftHasContent = plugins.some((plugin) => draftStates[plugin.name]?.hasContent)
   const draftBlocked = plugins.some((plugin) => draftStates[plugin.name]?.blocked)
-  const canSend = !draftBlocked && (input.trim() !== '' || draftHasContent)
+  const canSend = !sending && !draftBlocked && (input.trim() !== '' || draftHasContent)
 
-  // Set while plugins prepare a draft, so a second Enter cannot send it twice.
+  // Set synchronously, so a second Enter in the same tick cannot send the draft twice.
   const sendingRef = useRef(false)
   async function send(text: string) {
     const trimmed = text.trim()
     if (busy || sendingRef.current || draftBlocked) return
     if (!trimmed && !draftHasContent) return
     sendingRef.current = true
+    setSending(true)
     try {
       let draft: Draft = { text: trimmed, parts: [] }
       for (const plugin of plugins) {
@@ -331,14 +340,18 @@ export function AgentChat({
         draft = next
       }
       if (!draft.text && draft.parts.length === 0) return
+      // A request may have started while beforeSend waited (an approval answer, Retry).
+      if (statusRef.current === 'submitted' || statusRef.current === 'streaming') return
       const textParts: ChatPart[] = draft.text ? [{ type: 'text', text: draft.text }] : []
       sendMessage({ role: 'user', parts: [...textParts, ...draft.parts] })
-      setInput('')
+      // Keep anything typed while beforeSend waited.
+      setInput((current) => (current.trim() === trimmed ? '' : current))
       for (const plugin of plugins) plugin.afterSend?.()
     } catch (error) {
       console.error('[dopus] sending failed', error)
     } finally {
       sendingRef.current = false
+      setSending(false)
     }
   }
 

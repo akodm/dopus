@@ -22,7 +22,10 @@ export interface PartContext extends ChatContext {
 }
 
 export interface ComposerContext extends ChatContext {
-  /** Report this plugin's draft state: content lets Send go out without text; blocked holds Send back. */
+  /**
+   * Report this plugin's draft state: content lets Send go out without text; blocked holds Send back.
+   * Call it from effects or event handlers, not during render.
+   */
   setDraftState: (state: { hasContent?: boolean; blocked?: boolean }) => void
 }
 
@@ -33,13 +36,17 @@ export interface Draft {
 
 /**
  * A part of the chat the app chooses. Create plugins once (module scope or `useMemo`), like `channel`.
- * Plugins are tried in array order; the first `renderPart` that returns something other than `undefined` wins.
+ * Plugins are tried in array order; the first `renderPart` that returns something other than `undefined` or
+ * `false` wins.
  */
 export interface ChatPlugin {
   name: string
   /** What the server may rely on this client to show. */
   capabilities?: { approvals?: boolean }
-  /** Render a message part (tool parts, data parts). Return undefined to leave it to the next plugin. */
+  /**
+   * Render a message part (tool parts, data parts). Return `undefined` or `false` to leave it to the next plugin
+   * (so `cond && <X />` works); return `null` to show nothing and stop.
+   */
   renderPart?: (part: ChatPart, ctx: PartContext) => ReactNode | undefined
   /** After the messages (e.g. "Approve all"). */
   renderFooter?: (ctx: ChatContext) => ReactNode
@@ -63,7 +70,7 @@ export function renderPluginPart(
 ): ReactNode | undefined {
   for (const plugin of plugins) {
     const node = plugin.renderPart?.(part, ctx)
-    if (node !== undefined) return node
+    if (node !== undefined && node !== false) return node
   }
   return undefined
 }

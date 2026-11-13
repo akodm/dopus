@@ -54,6 +54,16 @@ describe('renderPluginPart', () => {
     expect(renderPluginPart([hide, show], toolPart, partContext(toolMessage))).toBeNull()
   })
 
+  it('passes a part on when a plugin returns false (cond && <X />)', () => {
+    const notMine = definePlugin({
+      name: 'notMine',
+      renderPart: (part) => part.type === 'tool-other' && 'other',
+    })
+    const mine = definePlugin({ name: 'mine', renderPart: () => 'mine' })
+    expect(renderPluginPart([notMine, mine], toolPart, partContext(toolMessage))).toBe('mine')
+    expect(renderPluginPart([notMine], toolPart, partContext(toolMessage))).toBeUndefined()
+  })
+
   it('returns undefined with no plugins', () => {
     expect(renderPluginPart([], toolPart, partContext(toolMessage))).toBeUndefined()
   })
