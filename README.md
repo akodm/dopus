@@ -570,6 +570,66 @@ file, and so the write is a step the user approves:
 
 Every one of them checks the file's owner first.
 
+**Images and PDFs.** Let a tool read the file and return text; do not put the file itself in the conversation. dopus
+sends the whole history to the model on every step, so a 20-page PDF in a message is paid for again on every later
+question, and big bodies hit request size limits. A tool's answer stays a few hundred tokens:
+
+```ts
+// agent.config.ts
+readDocument: defineTool((input) => readDocument(input.fileId, input.question), {
+  description: 'Reads an attached image or PDF and answers a question about it.',
+  usage: 'When the user attaches an image or a PDF. Pass what they want to know, e.g. "the termination clauses".',
+  input: z.object({ fileId: z.string(), question: z.string() }),
+}),
+```
+
+```ts
+// app/actions/documents.ts
+'use server'
+import { anthropic } from '@ai-sdk/anthropic'
+import { generateText } from 'ai'
+import { ToolError } from 'dopus'
+
+// getSession and files are your app's own session and file storage.
+export async function readDocument(fileId: string, question: string) {
+  const session = await getSession()
+  if (!session) throw new ToolError('Sign in to read files.')
+  const file = await files.find(fileId)
+  if (!file || file.ownerId !== session.userId) throw new ToolError('File not found.')
+  if (!/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(file.type)) {
+    throw new ToolError('Only images and PDFs can be read.')
+  }
+  // One model call that sees the file. Any model that reads images and PDFs works; a small one is usually enough.
+  const { text } = await generateText({
+    model: anthropic('claude-haiku-5-5'),
+    maxOutputTokens: 1000,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'file', data: file.bytes, mediaType: file.type },
+          {
+            type: 'text',
+            text: `Answer from this file only, briefly, quoting where it matters: ${question}`,
+          },
+        ],
+      },
+    ],
+  })
+  return { name: file.name, answer: text }
+}
+```
+
+- **The question goes to the tool**, so it reads only what is needed, and a second question about the same file is
+  another short call instead of the whole file again.
+- **The file's text is untrusted input**, like a retrieved passage: tools that write keep `confirm: true`.
+- **Your own limits apply here**: page count, file size, or an OCR service instead of a model. They are your code.
+
+**Large files.** A scanned contract of 80 pages, or a batch of invoices, can take longer than a request. Make reading
+it a [background job](#background-jobs): `startDocumentRead(fileId, question)` hands the file to your worker with
+`job: (result) => result.jobId` and returns at once; the worker saves the answer; your channel rings; the agent reads
+it with `getDocumentRead(jobId)` (which checks the owner) and carries on.
+
 ### Chat history
 
 By default the conversation lives in memory: a reload starts a new chat. To keep it, pass `history` with `load`

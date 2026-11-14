@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- README: reading images and PDFs through a tool (one model call that sees the file, an answer that stays short in
+  the history), and reading large files as a background job.
+
 ## 0.3.1 — 2026-11-13
 
 - Fix: a background job that finished while an approval card was open could make the approved call not run. The
