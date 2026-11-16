@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2 — 2026-11-16
 
 - `callOptions` can be a function `(request, { user }) => options`, run per request after `beforeRequest`: e.g. the
   user's id as AI gateway metadata (`cf-aig-metadata`). The object form works as before. New type `CallOptions`.
