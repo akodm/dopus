@@ -751,7 +751,7 @@ defineAgent({
     headers,
     onEnd,
     onStepEnd,
-  },
+  }, // or (request, { user }) => ({ ... }) per request; see "Through an AI gateway"
   onError: (error) => {}, // default: console.error
 })
 ```
@@ -1006,6 +1006,34 @@ Things to know:
 | Google    | `@ai-sdk/google`    | `GOOGLE_GENERATIVE_AI_API_KEY` | `gemini-3.5-flash`  |
 
 To switch providers or models, change `model` in `agent.config.ts`. Any AI SDK model works there.
+
+### Through an AI gateway
+
+A gateway (Cloudflare AI Gateway, for example) sits between your app and the provider: one place for cost dashboards,
+logs, fallbacks and retries. Point the provider at it; dopus needs nothing else:
+
+```ts
+// agent.config.ts
+import { createAnthropic } from '@ai-sdk/anthropic'
+
+const anthropic = createAnthropic({
+  baseURL: `https://gateway.ai.cloudflare.com/v1/${process.env.CF_ACCOUNT_ID}/${process.env.CF_GATEWAY_ID}/anthropic/v1`,
+  headers: { 'cf-aig-authorization': `Bearer ${process.env.CF_AIG_TOKEN}` }, // for an authenticated gateway
+})
+
+export default defineAgent({
+  model: anthropic('claude-sonnet-5-5'),
+  // A function runs per request, so the gateway's log can say whose request it was.
+  callOptions: (request, { user }) => ({
+    headers: { 'cf-aig-metadata': JSON.stringify({ userId: user?.id ?? 'anonymous' }) },
+  }),
+  // ...
+})
+```
+
+`callOptions` as a function gets the request and the user from `identify`, and runs after `beforeRequest`. Per-user
+limits still belong in `beforeRequest` (a gateway's rate limit counts the whole gateway), and `onFinish` still reports
+each user's tokens. A gateway's response cache rarely helps a chat, since every request carries a different history.
 
 ## Testing without an API key
 

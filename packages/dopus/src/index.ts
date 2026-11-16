@@ -1,5 +1,6 @@
 export {
   type AgentConfig,
+  type CallOptions,
   type ClientContext,
   createAgentHandler,
   defineAgent,

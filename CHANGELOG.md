@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `callOptions` can be a function `(request, { user }) => options`, run per request after `beforeRequest`: e.g. the
+  user's id as AI gateway metadata (`cf-aig-metadata`). The object form works as before. New type `CallOptions`.
+- README: using an AI gateway (Cloudflare AI Gateway) through the provider's `baseURL`.
 - README: reading images and PDFs through a tool (one model call that sees the file, an answer that stays short in
   the history), and reading large files as a background job.
 

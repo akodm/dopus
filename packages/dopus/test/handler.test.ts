@@ -481,6 +481,57 @@ describe('hooks', () => {
     )
   })
 
+  it('callOptions as a function gets the request and user; its headers and providerOptions reach the model', async () => {
+    const model = scriptedModel(textStep('hi'), textStep('hi'))
+    const onEnd = vi.fn()
+    const callOptions = vi.fn(
+      (request: Request, { user }: { user: { id: string } | undefined }) => ({
+        headers: { 'x-trace': request.headers.get('cookie') ?? 'none' },
+        providerOptions: { gateway: { metadata: { userId: user?.id ?? 'anon' } } },
+        onEnd,
+      }),
+    )
+    const POST = createAgentHandler(
+      defineAgent({
+        model,
+        tools: {},
+        identify: (request) => {
+          const id = request.headers.get('cookie')
+          return id ? { id } : undefined
+        },
+        callOptions,
+        ...silent,
+      }),
+    )
+    await readChunks(await POST(chatRequest([userMessage('x')], { cookie: 'alice' })))
+    await readChunks(await POST(chatRequest([userMessage('x')])))
+
+    expect(callOptions).toHaveBeenCalledTimes(2)
+    expect(model.doStreamCalls[0]?.headers).toMatchObject({ 'x-trace': 'alice' })
+    expect(model.doStreamCalls[0]?.providerOptions).toEqual({
+      gateway: { metadata: { userId: 'alice' } },
+    })
+    expect(model.doStreamCalls[1]?.providerOptions).toEqual({
+      gateway: { metadata: { userId: 'anon' } },
+    })
+    expect(onEnd).toHaveBeenCalledTimes(2)
+  })
+
+  it('callOptions as a function is not called when beforeRequest answers', async () => {
+    const callOptions = vi.fn(() => ({}))
+    const POST = createAgentHandler(
+      defineAgent({
+        model: scriptedModel(textStep('hi')),
+        tools: {},
+        beforeRequest: () => new Response('slow down', { status: 429 }),
+        callOptions,
+        ...silent,
+      }),
+    )
+    expect((await POST(chatRequest([userMessage('x')]))).status).toBe(429)
+    expect(callOptions).not.toHaveBeenCalled()
+  })
+
   it('onToolCall gets the raw error server-side; the model still sees the safe message', async () => {
     const onToolCall = vi.fn()
     const model = scriptedModel(toolCallStep('broken', {}), textStep('sorry'))

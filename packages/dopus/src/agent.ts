@@ -38,6 +38,18 @@ import {
 
 type StreamTextOptions = Parameters<typeof streamText>[0]
 
+/** The `streamText` settings `callOptions` may set. */
+export type CallOptions = Pick<
+  StreamTextOptions,
+  | 'temperature'
+  | 'maxOutputTokens'
+  | 'providerOptions'
+  | 'maxRetries'
+  | 'headers'
+  | 'onEnd'
+  | 'onStepEnd'
+>
+
 export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
   /** e.g. `anthropic('claude-sonnet-5-5')` from `@ai-sdk/anthropic`. */
   model: LanguageModel
@@ -85,17 +97,16 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
    * Defaults to `process.env.DOPUS_APPROVAL_SECRET`.
    */
   approvalSecret?: string
-  /** Extra `streamText` settings (temperature, providerOptions, ...). */
-  callOptions?: Pick<
-    StreamTextOptions,
-    | 'temperature'
-    | 'maxOutputTokens'
-    | 'providerOptions'
-    | 'maxRetries'
-    | 'headers'
-    | 'onEnd'
-    | 'onStepEnd'
-  >
+  /**
+   * Extra `streamText` settings (temperature, providerOptions, ...). Pass a function to set them per request, e.g. the
+   * user's id as AI gateway metadata; it runs after `beforeRequest`, inside the request, so `cookies()` works there.
+   */
+  callOptions?:
+    | CallOptions
+    | ((
+        request: Request,
+        ctx: { user: AgentUser | undefined },
+      ) => CallOptions | Promise<CallOptions>)
   /** Called for unexpected errors (not `ToolError`); the client only sees a generic message for those. */
   onError?: (error: unknown) => void
   /**
@@ -649,6 +660,10 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
       ...(await config.runtime?.(request, { user, client })),
     }
     const approvalSecret = config.approvalSecret ?? process.env.DOPUS_APPROVAL_SECRET
+    const callOptions =
+      typeof config.callOptions === 'function'
+        ? await config.callOptions(request, { user })
+        : config.callOptions
 
     // onFinish needs the usage (from streamText) and the final messages (from the UI stream); call it once both are in.
     const finish: {
@@ -665,7 +680,7 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
     }
 
     const result = streamText({
-      ...config.callOptions,
+      ...callOptions,
       model: config.model,
       instructions: buildInstructions(config.prompt, runtime),
       messages: await convertToModelMessages(messages, {
@@ -701,7 +716,7 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
       ...(approvalSecret ? { experimental_toolApprovalSecret: approvalSecret } : {}),
       onError: ({ error }) => report(error),
       onEnd: async (event) => {
-        await config.callOptions?.onEnd?.(event)
+        await callOptions?.onEnd?.(event)
         finish.usage = {
           user,
           model: { provider: event.model.provider, modelId: event.model.modelId },
