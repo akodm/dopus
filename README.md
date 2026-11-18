@@ -1,7 +1,14 @@
 # dopus
 
-A lightweight agent for Next.js. Hand it the server functions your app already has, and it does the user's tasks with
-them, with the user's own permissions.
+[![npm version](https://img.shields.io/npm/v/dopus)](https://www.npmjs.com/package/dopus)
+[![CI](https://github.com/akodm/dopus/actions/workflows/ci.yml/badge.svg)](https://github.com/akodm/dopus/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/dopus)](https://github.com/akodm/dopus/blob/main/LICENSE)
+
+![dopus: an AI agent for your Next.js app that uses the server functions you already have](https://raw.githubusercontent.com/akodm/dopus/main/docs/social-preview.png)
+
+A lightweight AI agent for Next.js (App Router). Hand it the server functions your app already has, and it does the
+user's tasks with them, with the user's own permissions: an in-app assistant or copilot with tool calling, approval
+cards and a chat UI, built on the Vercel AI SDK.
 
 ```bash
 pnpm add dopus

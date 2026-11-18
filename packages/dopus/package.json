@@ -1,7 +1,7 @@
 {
   "name": "dopus",
   "version": "0.3.2",
-  "description": "A lightweight agent for Next.js: your existing server functions become its tools, run with the signed-in user's permissions.",
+  "description": "A lightweight AI agent for Next.js App Router: your existing server functions become its tools, run with the signed-in user's permissions. Built on the Vercel AI SDK.",
   "license": "MIT",
   "author": "akodm",
   "homepage": "https://github.com/akodm/dopus#readme",
@@ -27,7 +27,17 @@
     "chatbot",
     "lightweight",
     "app-router",
-    "tools"
+    "tools",
+    "ai-agent",
+    "vercel-ai-sdk",
+    "react",
+    "typescript",
+    "tool-calling",
+    "function-calling",
+    "ai-assistant",
+    "copilot",
+    "human-in-the-loop",
+    "claude"
   ],
   "type": "module",
   "engines": {
