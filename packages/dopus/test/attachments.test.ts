@@ -156,6 +156,33 @@ describe('createAttachmentStore', () => {
     expect(upload).toHaveBeenCalledTimes(5)
   })
 
+  it.each([Number.NaN, 0, -1, Number.POSITIVE_INFINITY])(
+    'falls back to the defaults when maxFiles and maxSize are %s',
+    (bad) => {
+      const { upload } = controlledUpload()
+      const store = createAttachmentStore({ upload, maxFiles: bad, maxSize: bad })
+      store.add([file('huge', 20 * 1024 * 1024 + 1)])
+      store.add(Array.from({ length: 6 }, (_, i) => file(String(i))))
+
+      const errors = store.getSnapshot().map((entry) => entry.error)
+      expect(errors[0]).toBe('fileTooLarge')
+      expect(errors.slice(1, 6)).toEqual([undefined, undefined, undefined, undefined, undefined])
+      expect(errors[6]).toBe('tooManyFiles')
+      expect(upload).toHaveBeenCalledTimes(5)
+    },
+  )
+
+  it('rounds a fractional maxFiles down', () => {
+    const { upload } = controlledUpload()
+    const store = createAttachmentStore({ upload, maxFiles: 2.7 })
+    store.add([file('1'), file('2'), file('3')])
+    expect(store.getSnapshot().map((entry) => entry.error)).toEqual([
+      undefined,
+      undefined,
+      'tooManyFiles',
+    ])
+  })
+
   it('never sends more than 10 files, whatever maxFiles says', () => {
     const { upload } = controlledUpload()
     const store = createAttachmentStore({ upload, maxFiles: 50 })

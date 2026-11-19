@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Fix: `attachments({ maxFiles, maxSize })` with a value that is not a positive number (NaN from a parsed env var, 0,
+  Infinity) switched the limit off; it now uses the default. A fractional `maxFiles` is rounded down.
+- Fix: the starter suggestions are disabled while a message is being sent or an upload holds Send (a click there did
+  nothing). New rule `.dopus-suggestion:disabled` in `agent-chat.css` (`dopus update` refreshes an untouched copy).
+- `check-build` also follows dynamic imports in arrow functions (`() => import('./x.js')`), so a future code-split
+  chunk cannot slip client code into the server build unchecked.
+- package.json: description and keywords for npm search.
+
 ## 0.3.2 — 2026-11-16
 
 - `callOptions` can be a function `(request, { user }) => options`, run per request after `beforeRequest`: e.g. the

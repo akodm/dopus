@@ -23,9 +23,9 @@ export interface AttachmentsOptions {
   upload: (file: File, init: { signal: AbortSignal }) => Promise<UploadResult>
   /** The file input's `accept`, e.g. `'image/*,.pdf'`. */
   accept?: string
-  /** Files per message (default 5; never more than 10, the server's limit). */
+  /** Files per message (default 5; never more than 10, the server's limit). Not a positive number: the default. */
   maxFiles?: number
-  /** Bytes per file (default 20 MB). */
+  /** Bytes per file (default 20 MB). Not a positive number: the default. */
   maxSize?: number
   /** Override labels for this plugin only. */
   labels?: Partial<AgentChatLabels>
@@ -79,10 +79,18 @@ function truncateName(name: string, max = MAX_NAME): string {
 const validId = (id: unknown): id is string =>
   typeof id === 'string' && id.length >= 1 && id.length <= MAX_ID
 
+const positiveOr = (value: number | undefined, fallback: number) =>
+  value !== undefined && Number.isFinite(value) && value > 0 ? value : fallback
+
 /** The store behind the plugin: the files picked for the next message. Exported for tests. */
 export function createAttachmentStore(options: AttachmentsOptions): AttachmentStore {
-  const { upload, maxSize = DEFAULT_MAX_SIZE } = options
-  const maxFiles = Math.min(options.maxFiles ?? DEFAULT_MAX_FILES, SERVER_MAX_FILES)
+  const { upload } = options
+  // A limit that is not a positive finite number (NaN from a parsed env var, 0, Infinity) would switch the check off.
+  const maxSize = positiveOr(options.maxSize, DEFAULT_MAX_SIZE)
+  const maxFiles = Math.min(
+    positiveOr(Math.floor(options.maxFiles ?? Number.NaN), DEFAULT_MAX_FILES),
+    SERVER_MAX_FILES,
+  )
   let entries: readonly PendingFile[] = []
   let nextKey = 0
   // Keys the last beforeSend put in the draft; afterSend removes only these, not files finished since.

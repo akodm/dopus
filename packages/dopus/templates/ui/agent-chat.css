@@ -348,6 +348,11 @@
   font: inherit;
 }
 
+.dopus-suggestion:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .dopus-spinner {
   display: inline-block;
   width: 10px;

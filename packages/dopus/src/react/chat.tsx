@@ -436,6 +436,8 @@ export function AgentChat({
                 key={text}
                 type="button"
                 className="dopus-suggestion"
+                // Same conditions under which send() would ignore the click.
+                disabled={busy || sending || draftBlocked}
                 onClick={() => send(text)}
               >
                 {text}

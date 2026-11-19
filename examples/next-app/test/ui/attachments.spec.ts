@@ -35,6 +35,35 @@ test('an attached file is sent as a reference and read through a tool', async ({
   await expect(result).toContainText('Remember to water the plants.')
 })
 
+test('the starter suggestions are disabled while an upload holds Send', async ({
+  page,
+  baseURL,
+}) => {
+  let release = () => {}
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  await page.route('**/api/files', async (route) => {
+    await held
+    await route.continue()
+  })
+  await openChat(page, baseURL)
+  const suggestion = chat(page).getByRole('button', { name: 'Who am I?' })
+  await expect(suggestion).toBeEnabled()
+
+  await fileInput(page).setInputFiles({
+    name: 'slow.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('slow'),
+  })
+  await expect(chat(page).locator('.dopus-attachment')).toHaveAttribute('data-status', 'uploading')
+  await expect(suggestion).toBeDisabled()
+
+  release()
+  await expect(chat(page).locator('.dopus-attachment')).toHaveAttribute('data-status', 'done')
+  await expect(suggestion).toBeEnabled()
+})
+
 test('a file over 20 MB is refused on its chip and never uploaded', async ({ page, baseURL }) => {
   const uploads: string[] = []
   page.on('request', (request) => {
