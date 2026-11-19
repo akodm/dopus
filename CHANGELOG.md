@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.3 — 2026-11-19
 
 - Fix: `attachments({ maxFiles, maxSize })` with a value that is not a positive number (NaN from a parsed env var, 0,
   Infinity) switched the limit off; it now uses the default. A fractional `maxFiles` is rounded down.

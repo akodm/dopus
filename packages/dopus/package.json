@@ -1,6 +1,6 @@
 {
   "name": "dopus",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "A lightweight AI agent for Next.js App Router: your existing server functions become its tools, run with the signed-in user's permissions. Built on the Vercel AI SDK.",
   "license": "MIT",
   "author": "akodm",
