@@ -6,6 +6,7 @@ import { detectProject, InitError, type PackageManager } from './detect.js'
 import { findDefinitions, isEnvLocalIgnored, upsertEnv } from './env.js'
 import {
   agentConfigTemplate,
+  chatTemplate,
   PRESETS,
   type PresetId,
   readTemplate,
@@ -69,7 +70,19 @@ export function installArgs(packageManager: PackageManager, packages: string[], 
   return [...ADD_COMMAND[packageManager], ...(dev ? ['-D'] : []), ...packages]
 }
 
-export function toImportPath(fromFile: string, toFileWithoutExt: string) {
+/**
+ * How `fromFile` imports `toFileWithoutExt` (both relative to the project root): through the project's tsconfig
+ * alias for `configDir` when it has one (`@/agent.config`), else a relative path.
+ */
+export function toImportPath(
+  fromFile: string,
+  toFileWithoutExt: string,
+  alias?: { prefix: string; configDir: string },
+) {
+  if (alias) {
+    const inside = relative(alias.configDir, toFileWithoutExt).split('\\').join('/')
+    if (!inside.startsWith('..')) return `${alias.prefix}${inside}`
+  }
   const path = relative(dirname(fromFile), toFileWithoutExt).split('\\').join('/')
   return path.startsWith('.') ? path : `./${path}`
 }
@@ -101,11 +114,13 @@ export async function runInit(options: InitOptions, io: InitIO): Promise<InitRes
   const at = (path: string) => join(project.configDir, path)
   const layoutFile = join(project.appDir, 'layout.tsx')
   const chatFile = at('components/agent/agent-chat.tsx')
+  const alias = project.alias ? { prefix: project.alias, configDir: project.configDir } : undefined
+  const importPath = (from: string, to: string) => toImportPath(from, to, alias)
 
   const result: InitResult = {
     provider,
     preset,
-    widgetImport: toImportPath(layoutFile, chatFile.replace(/\.tsx$/, '')),
+    widgetImport: importPath(layoutFile, chatFile.replace(/\.tsx$/, '')),
     layoutFile,
     created: [],
     skipped: [],
@@ -166,17 +181,22 @@ export async function runInit(options: InitOptions, io: InitIO): Promise<InitRes
   const files: [file: string, content: () => string, alternatives: string[]][] = [
     [
       at('agent.config.ts'),
-      () => agentConfigTemplate(provider, model),
+      () =>
+        agentConfigTemplate(
+          provider,
+          model,
+          importPath(at('agent.config.ts'), at('agent/prompts')),
+        ),
       [at('agent.config.js'), at('agent.config.mjs')],
     ],
     [at('agent/prompts/preset.ts'), () => readTemplate(`prompts/presets/${preset}.ts`), []],
     [at('agent/prompts/app.ts'), () => readTemplate('prompts/app.ts'), []],
     [
       routeFile,
-      () => routeTemplate(toImportPath(routeFile, at('agent.config'))),
+      () => routeTemplate(importPath(routeFile, at('agent.config'))),
       [routeFile.replace(/\.ts$/, '.js')],
     ],
-    [chatFile, () => readTemplate('ui/agent-chat.tsx'), []],
+    [chatFile, () => chatTemplate(importPath(chatFile, at('components/agent/agent-chat.css'))), []],
     [at('components/agent/agent-chat.css'), () => readTemplate('ui/agent-chat.css'), []],
   ]
   for (const [file, content, alternatives] of files) {

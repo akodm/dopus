@@ -62,6 +62,10 @@ It also installs whatever is missing of `ai`, `zod`, `@ai-sdk/react` and the pro
 
 `init` is safe to run again. Existing files and env values are left alone unless you pass `--force` and confirm.
 
+The generated files import each other through your tsconfig path alias when it points at the project root (or `src/`),
+e.g. `"@/*": ["./*"]` gives `import agent from '@/agent.config'`; without one they use relative paths. Nothing is
+added to your tsconfig.
+
 Then add the widget to your root layout:
 
 ```tsx
@@ -103,7 +107,9 @@ pnpm dopus update            # --dry-run to only see what would change
 `update` handles the files `init` copied: the chat UI (`agent-chat.tsx`, `agent-chat.css`), the route and the preset
 prompt. It never touches `agent.config.ts`, `agent/prompts/app.ts` or `.env.local`.
 
-- A file you never edited (it matches a template some dopus version shipped) is replaced.
+- A file you never edited (it matches a template some dopus version shipped) is replaced. Formatting does not count as
+  an edit: a copy your formatter rewrote (quotes, semicolons, line breaks, trailing commas) or whose imports use your
+  path alias is still recognised, and the new chat wrapper keeps your stylesheet import path.
 - A file you edited is never replaced silently. You choose: see the diff, keep yours and get the new template next to
   it as `<file>.new` to merge by hand, replace it, or skip. `--yes` always takes the `.new` route; `--force` replaces.
 - Packages the new chat UI needs are installed (`--no-install` prints the command instead).
@@ -112,6 +118,12 @@ Commit first, so `git diff` shows exactly what changed. The [changelog](CHANGELO
 and anything to do in `agent.config.ts`.
 
 ## Tools
+
+**Before you register a function, check that it authorizes itself.** A tool calls the function directly, not through
+your page. A query that relied on the page (or the layout, or middleware) to check the session or role runs for anyone
+who can reach the chat. Move the check into the function (`await requireAdmin('view')` first thing), or wrap it in a
+server function that checks and then calls it. This is usually most of the work of adding dopus to an existing app,
+and it is worth a test: call the function with no session and assert it never reaches the database.
 
 ```ts
 // agent.config.ts
@@ -313,6 +325,78 @@ model also needs to know the role, pass it per request with `runtime: (_, { user
 
 An approval card for such a tool that is answered after the user lost the role is not run. If `access` throws, the
 tool is hidden for that request and the error goes to `onError`.
+
+**Typing the user.** `identify` returns an `AgentUser` (`{ id: string }` plus anything). Declare your fields once and
+`access`, `runtime`, `beforeRequest`, `onFinish` and `ctx.user` see them typed, with no casts:
+
+```ts
+// agent.config.ts (or any .ts file in the project)
+declare module 'dopus' {
+  interface AgentUser {
+    role: 'owner' | 'editor' | 'viewer'
+    loginId: string
+  }
+}
+```
+
+`identify` must then return those fields, so the compiler checks it too.
+
+**Only signed-in users.** When the whole chat is for signed-in users, set `requireUser: true`. A request whose
+`identify` returns `undefined` gets a 401 before the model, `beforeRequest` or `runtime` run, so an anonymous visitor
+cannot spend tokens. `defineAgent` throws if `identify` is missing.
+
+**An agent for one part of the app**, such as an admin console. The widget goes in that section's layout, but
+`/api/agent` is a public route, so the route has to check on its own:
+
+```ts
+// agent.config.ts
+declare module 'dopus' {
+  interface AgentUser {
+    role: AdminRole
+    loginId: string
+  }
+}
+
+export default defineAgent({
+  model,
+  tools: {
+    listUsers: defineTool((input) => listUsers(input), {
+      description: 'Lists service users, 50 per page.',
+      input: z.object({
+        q: z.string().max(100).optional(),
+        page: z.number().int().min(1).optional(),
+      }),
+      access: (user) => canPerform(user.role, 'view'), // what the model sees; listUsers checks again
+    }),
+  },
+  // Admins only: anyone else gets a 401 before the model runs.
+  identify: async () => {
+    const session = await getAdminSession()
+    return session
+      ? { id: session.adminId, role: session.role, loginId: session.loginId }
+      : undefined
+  },
+  requireUser: true,
+  // The model cannot see what identify returned. Say who is asking, or it may take a user it found in a tool
+  // result for the person it is talking to.
+  runtime: (_, { user }) => ({ 'Signed-in admin': `${user?.loginId} (role: ${user?.role})` }),
+  prompt: { preset, app, locales },
+})
+```
+
+```tsx
+// app/admin/layout.tsx
+import { AgentWidget } from '@/components/agent/agent-chat'
+
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      {children}
+      <AgentWidget suggestions={['List users']} />
+    </>
+  )
+}
+```
 
 Both options decide what the model sees, nothing more: keep the checks in your server functions. Without `identify`
 dopus cannot tell who is asking: tools without `access` are offered to everyone, tools with `access` to no one, and
@@ -744,6 +828,7 @@ defineAgent({
   prompt: { core, preset, app, locales },
   runtime: async (request, { user, client }) => ({ role: 'admin' }),
   identify: async (request) => ({ id: 'user-1' }), // optional
+  requireUser: true, // optional: 401 when identify returns undefined
   maxSteps: 10, // model ↔ tool round trips per request
   limits: { maxBodyBytes: 1_000_000, maxMessageChars: 8_000 }, // over → 413
   beforeRequest,

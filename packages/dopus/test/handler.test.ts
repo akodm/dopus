@@ -517,6 +517,40 @@ describe('hooks', () => {
     expect(onEnd).toHaveBeenCalledTimes(2)
   })
 
+  it('requireUser answers 401 before anything else runs when identify finds no user', async () => {
+    const model = scriptedModel(textStep('hi'))
+    const beforeRequest = vi.fn(() => undefined)
+    const runtime = vi.fn(() => ({}))
+    const POST = createAgentHandler(
+      defineAgent({
+        model,
+        tools: {},
+        requireUser: true,
+        identify: (request) => {
+          const id = request.headers.get('cookie')
+          return id ? { id } : undefined
+        },
+        beforeRequest,
+        runtime,
+        ...silent,
+      }),
+    )
+    const anonymous = await POST(chatRequest([userMessage('x')]))
+    expect(anonymous.status).toBe(401)
+    expect(await anonymous.json()).toEqual({ error: 'Sign in to use the assistant' })
+    expect(beforeRequest).not.toHaveBeenCalled()
+    expect(runtime).not.toHaveBeenCalled()
+    expect(model.doStreamCalls).toHaveLength(0)
+
+    expect((await POST(chatRequest([userMessage('x')], { cookie: 'alice' }))).status).toBe(200)
+  })
+
+  it('requireUser without identify is a configuration error', () => {
+    expect(() =>
+      defineAgent({ model: scriptedModel(), tools: {}, requireUser: true, ...silent }),
+    ).toThrow(/requireUser needs identify/)
+  })
+
   it('callOptions as a function is not called when beforeRequest answers', async () => {
     const callOptions = vi.fn(() => ({}))
     const POST = createAgentHandler(

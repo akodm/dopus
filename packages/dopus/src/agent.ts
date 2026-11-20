@@ -69,6 +69,11 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
    */
   identify?: (request: Request) => AgentUser | undefined | Promise<AgentUser | undefined>
   /**
+   * Only signed-in users may use the agent: when `identify` returns `undefined`, the request gets a 401 before the
+   * model, `beforeRequest` or `runtime` run. Use it when the whole chat is for signed-in users (an admin console, say).
+   */
+  requireUser?: boolean
+  /**
    * Runs before the model is called, after the body is validated. Return a `Response` (e.g. a 429 from your rate
    * limiter) to answer with it instead; return nothing to continue.
    */
@@ -243,6 +248,11 @@ export function defineAgent<TOOLS extends DopusToolSet>(
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
       throw new TypeError(`defineAgent: tool name "${name}" must match [a-zA-Z0-9_-]{1,64}`)
     }
+  }
+  if (config.requireUser && !config.identify) {
+    throw new TypeError(
+      'defineAgent: requireUser needs identify, the function that finds the signed-in user.',
+    )
   }
   if (!config.identify && Object.values(config.tools).some((t) => t.options.public)) {
     console.warn(
@@ -584,6 +594,7 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
     }
 
     const user = await config.identify?.(request)
+    if (config.requireUser && !user) return errorResponse(401, 'Sign in to use the assistant')
     const features = readClientFeatures(body)
     const visible = await visibleTools(config, user, report, features)
     const { tools, toolApproval } = buildTools(visible.tools, {

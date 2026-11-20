@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- `dopus init` writes imports through your tsconfig path alias when one points at the project root or `src/`
+  (`import agent from '@/agent.config'`, `import '@/components/agent/agent-chat.css'`), so projects that forbid
+  relative imports need no tsconfig changes. Without such an alias it uses relative paths as before.
+- `dopus update` ignores formatting: a copy your formatter rewrote (quotes, semicolons, line breaks, trailing commas) or
+  whose imports use your alias counts as untouched and is updated, instead of being reported as "has your changes".
+  The new chat wrapper keeps your stylesheet import path.
+- `requireUser: true` in `defineAgent`: when `identify` returns `undefined`, the request gets a 401 before the model,
+  `beforeRequest` or `runtime` run. `defineAgent` throws if `identify` is missing.
+- README: typing the user with `declare module 'dopus' { interface AgentUser { ... } }`, an agent for one part of the
+  app (admin console), and a check to do before registering a function: that it authorizes itself.
+
 ## 0.3.3 — 2026-11-19
 
 - Fix: `attachments({ maxFiles, maxSize })` with a value that is not a positive number (NaN from a parsed env var, 0,

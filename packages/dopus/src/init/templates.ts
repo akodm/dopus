@@ -26,13 +26,26 @@ export function readTemplate(path: string) {
   return readFileSync(join(templatesDir(), path), 'utf8')
 }
 
-export function agentConfigTemplate(provider: ProviderId, model: string) {
+/** The chat wrapper template imports its stylesheet by this path; init and update swap in the project's style. */
+export const CHAT_CSS_IMPORT = /^import ['"]([^'"]*agent-chat\.css)['"]/m
+
+/** The chat wrapper template with its stylesheet imported by `cssImport`. */
+export function chatTemplate(cssImport: string) {
+  return readTemplate('ui/agent-chat.tsx').replace(CHAT_CSS_IMPORT, `import '${cssImport}'`)
+}
+
+/** `prompts` is the import path of the agent/prompts directory, e.g. `./agent/prompts` or `@/agent/prompts`. */
+export function agentConfigTemplate(
+  provider: ProviderId,
+  model: string,
+  prompts = './agent/prompts',
+) {
   const info = PROVIDERS[provider]
   return `import { ${info.importName} } from '${info.packageName}'
 import { defineAgent, defineTool } from 'dopus'
 import { z } from 'zod'
-import app, { locales } from './agent/prompts/app'
-import preset from './agent/prompts/preset'
+import app, { locales } from '${prompts}/app'
+import preset from '${prompts}/preset'
 
 /**
  * Register your existing server functions as tools. They run inside the agent request,

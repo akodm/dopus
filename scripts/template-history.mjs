@@ -19,10 +19,20 @@ const show = (ref, path) => {
   }
 }
 
-// Must match normalize() in src/update/history.ts.
+// Must match normalize() in src/update/history.ts (the history test fails if they drift apart).
 const CONFIG_IMPORT = /^import agent from ['"][^'"]+['"]/m
+const CSS_IMPORT = /^import ['"][^'"]*agent-chat\.css['"]/m
 const normalize = (text) =>
-  text.replace(/\r\n/g, '\n').replace(CONFIG_IMPORT, "import agent from '<config>'")
+  text
+    .replace(/\r\n/g, '\n')
+    .replace(CONFIG_IMPORT, "import agent from '<config>'")
+    .replace(CSS_IMPORT, "import '<css>'")
+    .replaceAll('"', "'")
+    .replaceAll(';', '')
+    .replace(/\s+/g, ' ')
+    .replace(/ ?([{}()[\],:=<>+*/|&!?]) ?/g, '$1')
+    .replace(/,([}\])\]])/g, '$1')
+    .trim()
 const hash = (text) => createHash('sha256').update(normalize(text)).digest('hex').slice(0, 16)
 
 const FILES = [

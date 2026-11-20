@@ -52,6 +52,60 @@ describe('detectProject', () => {
   })
 })
 
+describe('import alias', () => {
+  const tsconfig = (content: string, srcDir = false) => {
+    const root = nextApp({ srcDir })
+    writeFileSync(join(root, 'tsconfig.json'), content)
+    return root
+  }
+
+  it('finds the alias for the project root, in a tsconfig with comments and trailing commas', () => {
+    const root = tsconfig(`{
+      // Next.js default
+      "compilerOptions": {
+        "paths": { "@/*": ["./*"], },
+      },
+    }`)
+    expect(detectProject(root).alias).toBe('@/')
+  })
+
+  it('finds the alias for src/ in a src/app project, also through baseUrl', () => {
+    expect(
+      detectProject(tsconfig('{"compilerOptions":{"paths":{"@/*":["./src/*"]}}}', true)).alias,
+    ).toBe('@/')
+    expect(
+      detectProject(tsconfig('{"compilerOptions":{"baseUrl":"src","paths":{"~/*":["*"]}}}', true))
+        .alias,
+    ).toBe('~/')
+  })
+
+  it('has none when no alias points at the config directory', () => {
+    expect(
+      detectProject(tsconfig('{"compilerOptions":{"paths":{"@/*":["./lib/*"]}}}')).alias,
+    ).toBeUndefined()
+    expect(detectProject(tsconfig('{}')).alias).toBeUndefined()
+    expect(detectProject(tsconfig('not json')).alias).toBeUndefined()
+  })
+
+  it('init writes every import through the alias', async () => {
+    const root = tsconfig('{"compilerOptions":{"paths":{"@/*":["./*"]}}}')
+    const result = await runInit(
+      { cwd: root, provider: 'openai', yes: true, install: false },
+      fakeIO().io,
+    )
+
+    const config = read(root, 'agent.config.ts')
+    expect(config).toContain("import app, { locales } from '@/agent/prompts/app'")
+    expect(config).toContain("import preset from '@/agent/prompts/preset'")
+    expect(read(root, 'app/api/agent/route.ts')).toContain("import agent from '@/agent.config'")
+    expect(read(root, 'components/agent/agent-chat.tsx')).toContain(
+      "import '@/components/agent/agent-chat.css'",
+    )
+    expect(read(root, 'components/agent/agent-chat.tsx')).not.toContain("'./agent-chat.css'")
+    expect(result.widgetImport).toBe('@/components/agent/agent-chat')
+  })
+})
+
 describe('runInit', () => {
   it('sets up a fresh app', async () => {
     const root = nextApp()

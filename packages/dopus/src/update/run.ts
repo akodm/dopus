@@ -2,7 +2,13 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { detectProject } from '../init/detect.js'
 import { type InitIO, installArgs, toImportPath } from '../init/run.js'
-import { PRESETS, readTemplate, routeTemplate } from '../init/templates.js'
+import {
+  CHAT_CSS_IMPORT,
+  chatTemplate,
+  PRESETS,
+  readTemplate,
+  routeTemplate,
+} from '../init/templates.js'
 import { unifiedDiff } from './diff.js'
 import { CONFIG_IMPORT, normalize, shippedIn } from './history.js'
 
@@ -102,8 +108,13 @@ export async function runUpdate(options: UpdateOptions, io: UpdateIO): Promise<U
   const chatFile = at('components/agent/agent-chat.tsx')
   const routeFile = join(project.appDir, 'api', 'agent', 'route.ts')
   const presetFile = at('agent/prompts/preset.ts')
+  const alias = project.alias ? { prefix: project.alias, configDir: project.configDir } : undefined
+  // The new wrapper keeps the stylesheet import the project's copy uses (an alias path, say).
+  const cssImport =
+    (exists(chatFile) ? read(chatFile).match(CHAT_CSS_IMPORT)?.[1] : undefined) ??
+    toImportPath(chatFile, at('components/agent/agent-chat.css'), alias)
   const targets: Target[] = [
-    { file: chatFile, key: 'ui/agent-chat.tsx', latest: readTemplate('ui/agent-chat.tsx') },
+    { file: chatFile, key: 'ui/agent-chat.tsx', latest: chatTemplate(cssImport) },
     {
       file: at('components/agent/agent-chat.css'),
       key: 'ui/agent-chat.css',
@@ -114,7 +125,8 @@ export async function runUpdate(options: UpdateOptions, io: UpdateIO): Promise<U
   ]
   if (exists(routeFile)) {
     const configImport =
-      read(routeFile).match(CONFIG_IMPORT)?.[1] ?? toImportPath(routeFile, at('agent.config'))
+      read(routeFile).match(CONFIG_IMPORT)?.[1] ??
+      toImportPath(routeFile, at('agent.config'), alias)
     targets.push({ file: routeFile, key: 'route', latest: routeTemplate(configImport) })
   } else {
     result.files.push({ file: routeFile, status: 'missing' })

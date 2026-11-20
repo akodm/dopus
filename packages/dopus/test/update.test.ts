@@ -28,6 +28,29 @@ export const maxDuration = 60
 export const POST = createAgentHandler(agent)
 `
 
+/**
+ * What Prettier with its defaults does to a template: semicolons, and a long import wrapped one name per line with a
+ * trailing comma.
+ */
+function prettierish(text: string) {
+  return text
+    .split('\n')
+    .map((line) =>
+      /^(import|export (const|type|default)|const) /.test(line) && /['")\]]$/.test(line)
+        ? `${line};`
+        : line,
+    )
+    .join('\n')
+    .replace(
+      /^import \{ ([^}]+) \} from '([^']+)';$/m,
+      (_, names: string, from: string) =>
+        `import {\n${names
+          .split(', ')
+          .map((name) => `  ${name},`)
+          .join('\n')}\n} from '${from}';`,
+    )
+}
+
 function project(files: Record<string, string>, deps: Record<string, string> = UI_DEPS) {
   return nextApp({ deps, files })
 }
@@ -98,6 +121,69 @@ describe('runUpdate', () => {
     expect(status(result, PRESET)).toBe('up-to-date')
     expect(calls.choose).toEqual([])
     expect(calls.install).toEqual([])
+  })
+
+  it('treats a copy that only a formatter changed (quotes, semicolons, wrapping, alias import) as untouched', async () => {
+    const root = project({
+      [CHAT]: prettierish(readTemplate('ui/agent-chat.tsx')).replace(
+        "import './agent-chat.css';",
+        "import '@/components/agent/agent-chat.css';",
+      ),
+      [CSS]: readTemplate('ui/agent-chat.css').replaceAll('"', "'"),
+      [ROUTE]: prettierish(ROUTE_0_2_0.replace('@/agent.config', 'agent.config')),
+      [PRESET]: prettierish(readTemplate('prompts/presets/general.ts')),
+    })
+    const { io, calls } = updateIO()
+    const result = await runUpdate({ cwd: root, dryRun: true }, io)
+    expect(status(result, CHAT)).toBe('up-to-date')
+    expect(status(result, CSS)).toBe('up-to-date')
+    expect(status(result, PRESET)).toBe('up-to-date')
+    // An old route, reformatted, is still recognised as that old version.
+    expect(result.files.find((f) => f.file === ROUTE)).toMatchObject({
+      status: 'updated',
+      from: '0.1.0',
+    })
+    expect(calls.choose).toEqual([])
+  })
+
+  it('replaces a reformatted copy of an older stylesheet', async () => {
+    const css032 = readTemplate('ui/agent-chat.css').replace(
+      /\n\.dopus-suggestion:disabled \{\n {2}opacity: 0\.4;\n {2}cursor: default;\n\}\n/,
+      '',
+    )
+    expect(css032).not.toBe(readTemplate('ui/agent-chat.css'))
+    const root = project({
+      [CHAT]: readTemplate('ui/agent-chat.tsx'),
+      [CSS]: css032.replaceAll('"', "'"),
+    })
+    const result = await runUpdate({ cwd: root }, updateIO().io)
+    expect(result.files.find((f) => f.file === CSS)).toMatchObject({
+      status: 'updated',
+      from: '0.3.1',
+    })
+    expect(read(root, CSS)).toContain('.dopus-suggestion:disabled')
+  })
+
+  it('still sees a real edit in a reformatted copy', async () => {
+    const root = project({
+      [CHAT]: readTemplate('ui/agent-chat.tsx'),
+      [CSS]: readTemplate('ui/agent-chat.css')
+        .replaceAll('"', "'")
+        .replace('cursor: pointer;', 'cursor: help;'),
+    })
+    const result = await runUpdate({ cwd: root, dryRun: true }, updateIO().io)
+    expect(status(result, CSS)).toBe('modified')
+  })
+
+  it('writes the new chat wrapper with the stylesheet import the project uses', async () => {
+    const root = project({
+      [CHAT]: readTemplate('ui/agent-chat.tsx')
+        .replace("import './agent-chat.css'", "import '@/components/agent/agent-chat.css'")
+        .replace('const plugins = [toolLog(), approvals()]', 'const plugins = [toolLog()]'),
+    })
+    await runUpdate({ cwd: root, force: true }, updateIO().io)
+    expect(read(root, CHAT)).toContain("import '@/components/agent/agent-chat.css'")
+    expect(read(root, CHAT)).toContain('const plugins = [toolLog(), approvals()]')
   })
 
   it('asks about an edited file; can show the diff, then keep it', async () => {

@@ -59,8 +59,14 @@ const updated = snapshot()
 // What a fresh init of this version writes (also leaves agent.config.ts current for the build below).
 dopus(...initArgs, '--force')
 const fresh = snapshot()
+// update keeps the project's own import paths (here the relative ones an older init wrote); a fresh init may use the
+// tsconfig alias instead. Everything else must match.
+const ownImports = (text) =>
+  text
+    .replace(/^import agent from ['"][^'"]+['"]/m, "import agent from '<config>'")
+    .replace(/^import ['"][^'"]*agent-chat\.css['"]/m, "import '<css>'")
 for (const file of COPIED) {
-  if (updated[file] !== fresh[file]) {
+  if (ownImports(updated[file]) !== ownImports(fresh[file])) {
     throw new Error(`dopus update left ${file} different from a fresh init`)
   }
 }
