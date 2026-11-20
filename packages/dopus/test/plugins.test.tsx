@@ -213,15 +213,21 @@ describe('approvals', () => {
     }
   }
 
-  it('shows the approve-all row for more than one open approval', () => {
-    const out = renderToStaticMarkup(<>{plugin.renderFooter?.(chatContext(['a', 'b']))}</>)
+  it('shows no approve-all row by default: each card is answered on its own', () => {
+    expect(renderToStaticMarkup(<>{plugin.renderFooter?.(chatContext(['a', 'b']))}</>)).toBe('')
+  })
+
+  it('with approveAll, shows the approve-all row for more than one open approval', () => {
+    const all = approvals({ approveAll: true })
+    const out = renderToStaticMarkup(<>{all.renderFooter?.(chatContext(['a', 'b']))}</>)
     expect(out).toContain('dopus-approval-actions dopus-approval-all')
     expect(out).toContain('Approve all (2)')
     expect(out).toContain('Decline all')
   })
 
   it('shows no approve-all row for one approval or when disabled', () => {
-    expect(renderToStaticMarkup(<>{plugin.renderFooter?.(chatContext(['a']))}</>)).toBe('')
+    const all = approvals({ approveAll: true })
+    expect(renderToStaticMarkup(<>{all.renderFooter?.(chatContext(['a']))}</>)).toBe('')
     const off = approvals({ approveAll: false })
     expect(renderToStaticMarkup(<>{off.renderFooter?.(chatContext(['a', 'b']))}</>)).toBe('')
   })

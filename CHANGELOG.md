@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+Security defaults changed; see "Upgrading to 0.5" in the README.
+
+- **A missing approval secret no longer turns approvals off.** If any tool has `confirm` and neither
+  `DOPUS_APPROVAL_SECRET` nor `approvalSecret` is set, every request is refused (500) and `onError` says why. Before,
+  approvals were silently unsigned, so a forged request body could run a `confirm` tool without the user's click.
+  `insecureApprovals: true` restores the old behaviour, for local experiments only.
+- **Requests from other sites are refused.** The route accepts only `content-type: application/json` (415) and only
+  same-origin browser requests (403), by `Sec-Fetch-Site`, else `Origin`. Requests with neither header are accepted.
+  `allowedOrigins` admits other origins.
+- **Approvals are bound to the user and expire.** dopus signs each approval card with the signed-in user's id and an
+  expiry (`approvalMaxAge`, default 600 seconds), on top of the AI SDK's signature. An answer from another user's
+  session, after the card expired, or with a tampered signature closes the card as "Not run" (the model reads why and
+  can ask again). Cards signed by 0.4 count as not run.
+- **"Approve all" is off by default.** `approvals({ approveAll: true })` turns it back on. One approval for several
+  calls made it easy to pass a call that a prompt injection slipped in.
+- README: `runtime` overrides the browser's `page` and `locale`, so it can hide a secret path segment.
+
 ## 0.4.0 — 2026-11-20
 
 - `dopus init` writes imports through your tsconfig path alias when one points at the project root or `src/`

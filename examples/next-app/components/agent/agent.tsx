@@ -67,6 +67,11 @@ export function Agent({
   // replaces the template's list, so agent-chat.tsx stays identical to what `dopus init` copies. Created once per
   // mount (lazy useState), not at module scope: the layout remounts Agent per user (`key`), so files picked but not
   // sent stay with that user.
-  const [plugins] = useState(() => [toolLog(), approvals(), attachments({ upload })])
+  // approveAll: this demo lets several open cards be answered at once (off by default).
+  const [plugins] = useState(() => [
+    toolLog(),
+    approvals({ approveAll: true }),
+    attachments({ upload }),
+  ])
   return <AgentWidget {...props} plugins={plugins} channel={channel} history={history} />
 }

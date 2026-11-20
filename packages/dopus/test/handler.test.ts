@@ -1,6 +1,6 @@
 import type { LanguageModelV4StreamPart } from '@ai-sdk/provider'
 import type { UIMessage } from 'ai'
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { NO_APPROVAL_UI_REASON } from '../src/agent.js'
 import {
@@ -22,6 +22,15 @@ import {
 } from './helpers.js'
 
 const silent = { onError: () => {} }
+
+// Every handler here signs approvals unless a test removes the secret.
+const TEST_SECRET = 'test-secret-0123456789abcdef-0123456789'
+beforeAll(() => {
+  vi.stubEnv('DOPUS_APPROVAL_SECRET', TEST_SECRET)
+})
+afterAll(() => {
+  vi.unstubAllEnvs()
+})
 
 describe('createAgentHandler', () => {
   it('streams text with the UI message stream protocol', async () => {
@@ -65,6 +74,7 @@ describe('createAgentHandler', () => {
     )
     const request = new Request('http://localhost/api/agent', {
       method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         messages: [userMessage('hi')],
         context: { locale: 'en', page: '/orders', role: 'x' },
@@ -294,10 +304,16 @@ describe('createAgentHandler', () => {
 
   it('rejects bad request bodies', async () => {
     const POST = createAgentHandler(defineAgent({ model: scriptedModel(), tools: {}, ...silent }))
-    const notJson = new Request('http://localhost/api/agent', { method: 'POST', body: '{' })
+    const json = { 'content-type': 'application/json' }
+    const notJson = new Request('http://localhost/api/agent', {
+      method: 'POST',
+      headers: json,
+      body: '{',
+    })
     expect((await POST(notJson)).status).toBe(400)
     const badMessages = new Request('http://localhost/api/agent', {
       method: 'POST',
+      headers: json,
       body: JSON.stringify({ messages: [{ role: 'user' }] }),
     })
     expect((await POST(badMessages)).status).toBe(400)
@@ -438,6 +454,227 @@ describe('confirm flow', () => {
 
     await readChunks(await signed.POST(chatRequest([first, respond(assistant, true)])))
     expect(signed.cancelOrder).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('request origin and content type', () => {
+  const handler = (allowedOrigins?: string[]) =>
+    createAgentHandler(
+      defineAgent({ model: scriptedModel(textStep('hi')), tools: {}, allowedOrigins, ...silent }),
+    )
+  const post = (headers: Record<string, string>) =>
+    new Request('https://app.example.com/api/agent', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ messages: [userMessage('x')] }),
+    })
+
+  it('refuses a body that is not sent as JSON (a form or text/plain post skips the CORS preflight)', async () => {
+    for (const type of ['text/plain', 'application/x-www-form-urlencoded', 'multipart/form-data']) {
+      expect((await handler()(post({ 'content-type': type }))).status).toBe(415)
+    }
+    expect(
+      (await handler()(post({ 'content-type': 'application/json; charset=utf-8' }))).status,
+    ).toBe(200)
+  })
+
+  it('accepts same-origin browser requests and refuses cross-site ones', async () => {
+    expect((await handler()(post({ 'sec-fetch-site': 'same-origin' }))).status).toBe(200)
+    for (const site of ['cross-site', 'same-site', 'none']) {
+      const response = await handler()(
+        post({ 'sec-fetch-site': site, origin: 'https://evil.example' }),
+      )
+      expect(response.status).toBe(403)
+    }
+  })
+
+  it('compares Origin with the route when the browser sends no Sec-Fetch-Site', async () => {
+    expect((await handler()(post({ origin: 'https://app.example.com' }))).status).toBe(200)
+    expect((await handler()(post({ origin: 'https://evil.example' }))).status).toBe(403)
+  })
+
+  it('lets through requests with neither header (server-to-server, curl): no browser cookies ride along', async () => {
+    expect((await handler()(post({}))).status).toBe(200)
+  })
+
+  it('allowedOrigins admits other origins', async () => {
+    const POST = handler(['https://admin.example.com'])
+    expect(
+      (await POST(post({ 'sec-fetch-site': 'same-site', origin: 'https://admin.example.com' })))
+        .status,
+    ).toBe(200)
+    expect((await POST(post({ origin: 'https://admin.example.com' }))).status).toBe(200)
+    expect(
+      (await POST(post({ 'sec-fetch-site': 'cross-site', origin: 'https://evil.example' }))).status,
+    ).toBe(403)
+  })
+
+  it('checks before identify or the model run', async () => {
+    const identify = vi.fn(() => ({ id: 'u' }))
+    const model = scriptedModel(textStep('hi'))
+    const POST = createAgentHandler(defineAgent({ model, tools: {}, identify, ...silent }))
+    await POST(post({ 'sec-fetch-site': 'cross-site', origin: 'https://evil.example' }))
+    expect(identify).not.toHaveBeenCalled()
+    expect(model.doStreamCalls).toHaveLength(0)
+  })
+})
+
+describe('approval secret', () => {
+  const cancel = () =>
+    defineTool(async () => ({ ok: true }), {
+      description: 'Cancel',
+      input: z.object({}),
+      confirm: true,
+    })
+
+  it('refuses every request when a confirm tool exists and no secret is set', async () => {
+    vi.stubEnv('DOPUS_APPROVAL_SECRET', '')
+    try {
+      const model = scriptedModel(textStep('hi'))
+      const onError = vi.fn()
+      const POST = createAgentHandler(defineAgent({ model, tools: { cancel: cancel() }, onError }))
+      const response = await POST(chatRequest([userMessage('x')]))
+      expect(response.status).toBe(500)
+      expect(await response.json()).toEqual({ error: 'The assistant is not configured' })
+      expect(model.doStreamCalls).toHaveLength(0)
+      expect(String(onError.mock.calls[0]?.[0])).toContain('DOPUS_APPROVAL_SECRET')
+    } finally {
+      vi.stubEnv('DOPUS_APPROVAL_SECRET', TEST_SECRET)
+    }
+  })
+
+  it('runs unsigned approvals only with insecureApprovals', async () => {
+    vi.stubEnv('DOPUS_APPROVAL_SECRET', '')
+    try {
+      const POST = createAgentHandler(
+        defineAgent({
+          model: scriptedModel(toolCallStep('cancel', {}), textStep('ok')),
+          tools: { cancel: cancel() },
+          insecureApprovals: true,
+          ...silent,
+        }),
+      )
+      const chunks = await readChunks(await POST(chatRequest([userMessage('x')])))
+      expect(chunks).toContainEqual(expect.objectContaining({ type: 'tool-approval-request' }))
+      expect(chunks).not.toContainEqual(expect.objectContaining({ signature: expect.anything() }))
+    } finally {
+      vi.stubEnv('DOPUS_APPROVAL_SECRET', TEST_SECRET)
+    }
+  })
+
+  it('needs no secret when no tool asks for confirmation', async () => {
+    vi.stubEnv('DOPUS_APPROVAL_SECRET', '')
+    try {
+      const POST = createAgentHandler(
+        defineAgent({ model: scriptedModel(textStep('hi')), tools: {}, ...silent }),
+      )
+      expect((await POST(chatRequest([userMessage('x')]))).status).toBe(200)
+    } finally {
+      vi.stubEnv('DOPUS_APPROVAL_SECRET', TEST_SECRET)
+    }
+  })
+})
+
+describe('approvals are bound to the user and expire', () => {
+  function setup(approvalMaxAge?: number) {
+    const cancelOrder = vi.fn(async () => ({ ok: true }))
+    const model = scriptedModel(toolCallStep('cancelOrder', { orderId: 'o1' }), textStep('Done.'))
+    const POST = createAgentHandler(
+      defineAgent({
+        model,
+        tools: {
+          cancelOrder: defineTool(cancelOrder, {
+            description: 'Cancel an order',
+            input: z.object({ orderId: z.string() }),
+            confirm: true,
+          }),
+        },
+        identify: (request) => {
+          const id = request.headers.get('cookie')
+          return id ? { id } : undefined
+        },
+        approvalMaxAge,
+        ...silent,
+      }),
+    )
+    return { POST, cancelOrder }
+  }
+  type CardPart = {
+    state: string
+    approval: { id: string; approved?: boolean; signature?: string; reason?: string }
+  }
+  const card = (message: UIMessage) =>
+    message.parts.find((p) => p.type === 'tool-cancelOrder') as unknown as CardPart
+
+  async function ask(POST: (r: Request) => Promise<Response>, cookie = 'alice') {
+    const first = userMessage('cancel o1')
+    const assistant = await assistantMessage(
+      await readChunks(await POST(chatRequest([first], { cookie }))),
+    )
+    return { first, assistant }
+  }
+  function approve(assistant: UIMessage) {
+    const answered = structuredClone(assistant)
+    const part = card(answered)
+    part.state = 'approval-responded'
+    part.approval = { ...part.approval, approved: true }
+    return answered
+  }
+
+  it('signs the card for this user with an expiry', async () => {
+    const { POST } = setup()
+    const { assistant } = await ask(POST)
+    expect(card(assistant).approval.signature).toMatch(/^dopus1\.\d+\.[\w-]+\.[\w-]+$/)
+  })
+
+  it('runs an approval the same user gives in time', async () => {
+    const { POST, cancelOrder } = setup()
+    const { first, assistant } = await ask(POST)
+    await readChunks(await POST(chatRequest([first, approve(assistant)], { cookie: 'alice' })))
+    expect(cancelOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not run an approval sent by another user, and closes the card', async () => {
+    const { POST, cancelOrder } = setup()
+    const { first, assistant } = await ask(POST, 'alice')
+    const chunks = await readChunks(
+      await POST(chatRequest([first, approve(assistant)], { cookie: 'mallory' })),
+    )
+    expect(cancelOrder).not.toHaveBeenCalled()
+    expect(chunks).toContainEqual({ type: 'tool-output-denied', toolCallId: 'call-1' })
+  })
+
+  it('does not run an approval answered after it expired', async () => {
+    const { POST, cancelOrder } = setup(60)
+    const { first, assistant } = await ask(POST)
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.now() + 61_000)
+      const chunks = await readChunks(
+        await POST(chatRequest([first, approve(assistant)], { cookie: 'alice' })),
+      )
+      expect(cancelOrder).not.toHaveBeenCalled()
+      expect(chunks).toContainEqual({ type: 'tool-output-denied', toolCallId: 'call-1' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not run a card whose expiry was pushed back, or one signed without dopus', async () => {
+    const { POST, cancelOrder } = setup()
+    const { first, assistant } = await ask(POST)
+    const signature = card(assistant).approval.signature ?? ''
+    const [, exp, mac, sdk] = signature.split('.')
+
+    const extended = approve(assistant)
+    card(extended).approval.signature = `dopus1.${Number(exp) + 86_400}.${mac}.${sdk}`
+    await readChunks(await POST(chatRequest([first, extended], { cookie: 'alice' })))
+
+    const bare = approve(assistant)
+    card(bare).approval.signature = sdk
+    await readChunks(await POST(chatRequest([first, bare], { cookie: 'alice' })))
+
+    expect(cancelOrder).not.toHaveBeenCalled()
   })
 })
 
@@ -1315,5 +1552,23 @@ describe('file attachments', () => {
     const { POST } = setup()
     const message = { id: 'a1', role: 'assistant', parts: [file()] } as UIMessage
     expect((await POST(chatRequest([userMessage('hi'), message]))).status).toBe(400)
+  })
+})
+
+describe('approval wrapper parsing', () => {
+  it('rejects malformed wrappers without throwing', async () => {
+    const { unwrapApprovalSignature } = await import('../src/approval.js')
+    for (const signature of [
+      '',
+      'dopus1',
+      'dopus1.x.y.z',
+      'dopus1.1.a.b.c',
+      'dopus1.99999999999.a.b',
+      'dopus1.99999999999.%%.b',
+    ]) {
+      await expect(
+        unwrapApprovalSignature({ secret: 's', userId: 'u', signature }),
+      ).resolves.toBeUndefined()
+    }
   })
 })

@@ -258,9 +258,30 @@ export async function searchDocs(query: string) {
 - Register only the functions you want the agent to call.
 - Protect the route like your other API routes, with rate limits and auth if anonymous use costs you money.
 
-**Approvals.** With `DOPUS_APPROVAL_SECRET` set (`init` generates it), every approval request is HMAC-signed over the approval id, tool call id, tool name and input. An approval with a missing or tampered signature, or one whose input was changed after signing, is rejected and the tool does not run.
+**Approvals.** Every approval request is HMAC-signed with `DOPUS_APPROVAL_SECRET` (`init` generates it) over the
+approval id, tool call id, tool name and input, and dopus adds the signed-in user's id and an expiry (`approvalMaxAge`,
+default 600 seconds). An approval with a missing or tampered signature, an input changed after signing, an answer that
+comes after the card expired, or one sent with another user's session is not run: the card shows "Not run" and the
+model can ask again.
+
+- **The secret is required.** If any tool has `confirm` and no secret is set, every request is refused with a 500 and
+  `onError` says why: without a secret, a forged request body could run a `confirm` tool without the user's click.
+  Set `DOPUS_APPROVAL_SECRET` in every deployment (32+ random characters, e.g. `openssl rand -base64 32`).
+  `insecureApprovals: true` turns the check off, for local experiments only.
+- **Not one-time.** Within its lifetime, the same approval sent twice (a duplicated tab) reaches your function twice.
+  Check the current state there ("already cancelled") for anything that must not happen twice.
+
+**Requests from other sites are refused.** The route accepts only `content-type: application/json` (415 otherwise: a
+form or `text/plain` post would skip the browser's CORS preflight) and only browser requests from its own origin (403
+otherwise), judged by `Sec-Fetch-Site`, or by `Origin` for browsers that do not send it. A route handler gets none of
+the origin checks Next.js applies to Server Actions, so without this another site could make a signed-in user's
+browser talk to your agent. Requests with neither header (curl, server-to-server) carry no browser cookies and are
+accepted. If the chat runs on another origin, list it: `allowedOrigins: ['https://admin.example.com']`. Behind a proxy
+that rewrites the host, old browsers without `Sec-Fetch-Site` may be refused; list your public origin there too.
 
 **Browser context is untrusted.** The chat UI sends `{ page, locale }` so the agent knows where the user is. The server accepts only those two keys, strips control characters and caps their length. Anything that matters for authorization, such as role, plan or tenant, must come from the server via `runtime`.
+`runtime` gets the browser's values as `client` and its own keys win, so it can also hide or rewrite them, e.g. a secret
+path segment in `page`: `runtime: (_, { client }) => ({ page: client.page?.replace(SECRET, '…') })`.
 
 **Prompt injection.** Assume the model can be talked into anything: by the user, or by text inside tool results that other people wrote (a task title, a comment, an email body). dopus does not rely on the model resisting it. The limits are structural:
 
@@ -498,12 +519,12 @@ toolLog({ details: false, hide: ['getCurrentUser'], title: (name) => name })
 ### approvals
 
 ```ts
-approvals({ approveAll: false, describe: (tool, input) => <p>{tool}: {JSON.stringify(input)}</p> })
+approvals({ approveAll: true, describe: (tool, input) => <p>{tool}: {JSON.stringify(input)}</p> })
 ```
 
 | Option       | Default                | What it does                                                        |
 | ------------ | ---------------------- | ------------------------------------------------------------------- |
-| `approveAll` | `true`                 | Show "Approve all" / "Decline all" when two or more cards are open. |
+| `approveAll` | `false`                | Show "Approve all" / "Decline all" when two or more cards are open. |
 | `describe`   | the tool input as JSON | What the card shows about the call. Return any React node.          |
 | `labels`     | none                   | Override labels for this plugin only.                               |
 
@@ -796,11 +817,24 @@ Several tabs of the same user (checked in the browser, `examples/next-app/test/u
   chat started it, even though every tab of the user hears it on the channel.
 - **Signed out, or lost the role, in another tab**: an Approve pressed afterwards is not run, and the card shows
   "Not run".
-- **Another user signed in from another tab**: the browser now sends that user's cookie, so the approved tool runs
-  with their permissions, and your server function's own checks decide. The page then switches to their chat.
+- **Another user signed in from another tab**: the browser now sends that user's cookie, but the card was signed for
+  the first user, so it is not run and shows "Not run".
 - **The same card approved twice** (a duplicated tab copies sessionStorage): approvals are signed but not one-time,
-  so the second one reaches your server function again. Check the current state there ("already cancelled") rather
-  than relying on the card.
+  so within the card's lifetime the second one reaches your server function again. Check the current state there
+  ("already cancelled") rather than relying on the card.
+
+### Upgrading to 0.5
+
+0.5 changes security defaults. Check these after upgrading:
+
+- **`DOPUS_APPROVAL_SECRET` must be set** wherever the agent runs, if any tool has `confirm`; otherwise every request
+  gets a 500. `dopus init` put it in `.env.local`; copy it to your hosting's environment (or set `approvalSecret`).
+- **Only same-origin JSON requests reach the route.** The chat UI already sends them. If you post to `/api/agent` from
+  another origin, add it to `allowedOrigins`; if you call it from scripts, send `content-type: application/json`.
+- **Approvals expire and belong to one user.** A card answered after `approvalMaxAge` (600 seconds) or from another
+  user's session is not run. Cards that were open while you deployed (signed by 0.4) show "Not run" when answered;
+  the model asks again.
+- **"Approve all" is off.** Pass `approvals({ approveAll: true })` to bring it back.
 
 ### Upgrading from 0.2
 
@@ -834,7 +868,10 @@ defineAgent({
   beforeRequest,
   onToolCall,
   onFinish, // see "Audit log, usage and rate limits"
-  approvalSecret, // default: process.env.DOPUS_APPROVAL_SECRET
+  approvalSecret, // default: process.env.DOPUS_APPROVAL_SECRET; required when a tool has `confirm`
+  approvalMaxAge: 600, // seconds an approval card stays valid
+  allowedOrigins: [], // other origins whose pages may post to the route
+  insecureApprovals: false, // true: run confirm tools without a secret (local experiments only)
   callOptions: {
     temperature,
     maxOutputTokens,

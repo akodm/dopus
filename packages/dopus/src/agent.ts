@@ -17,6 +17,7 @@ import {
   type UIMessage,
   type UIMessageChunk,
 } from 'ai'
+import { checkApprovals, DEFAULT_APPROVAL_MAX_AGE, wrapApprovalRequests } from './approval.js'
 import {
   type AttachedFile,
   FILE_PART,
@@ -102,6 +103,23 @@ export interface AgentConfig<TOOLS extends DopusToolSet = DopusToolSet> {
    * Defaults to `process.env.DOPUS_APPROVAL_SECRET`.
    */
   approvalSecret?: string
+  /**
+   * Run `confirm` tools without a signing secret. Without one, an approval cannot be told from a forged request body,
+   * so anyone who can post to the route can run a `confirm` tool without the user's click. Only for local experiments;
+   * by default a missing secret makes every request fail (500) while any tool has `confirm`.
+   */
+  insecureApprovals?: boolean
+  /**
+   * Other origins whose pages may post to the route, e.g. `['https://admin.example.com']`. By default only same-origin
+   * browser requests are accepted (by `Sec-Fetch-Site`, else `Origin`), so another site cannot make a signed-in user's
+   * browser talk to the agent. Requests with neither header (no browser, no cookies) are accepted.
+   */
+  allowedOrigins?: string[]
+  /**
+   * Seconds an approval card stays valid (default 600). Each card is signed for the user who saw it; an answer that
+   * comes later, or from another user, closes the card as not run and the model can ask again.
+   */
+  approvalMaxAge?: number
   /**
    * Extra `streamText` settings (temperature, providerOptions, ...). Pass a function to set them per request, e.g. the
    * user's id as AI gateway metadata; it runs after `beforeRequest`, inside the request, so `cookies()` works there.
@@ -541,6 +559,30 @@ function withClosedCards(
 
 const JSON_HEADERS = { 'content-type': 'application/json' }
 
+/**
+ * Why a request may not reach the agent, or undefined. The body must be declared JSON: a form or `text/plain` post
+ * is a "simple" cross-site request that skips the CORS preflight. And a browser request must come from this site
+ * (or an allowed origin), judged by `Sec-Fetch-Site`, which the browser sets, else by `Origin`. A route handler gets
+ * none of the origin checks Next.js applies to Server Actions.
+ */
+export function refuseRequest(
+  request: Request,
+  allowedOrigins: readonly string[] = [],
+): Response | undefined {
+  const type = request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()
+  if (type !== 'application/json') return errorResponse(415, 'Request body must be JSON')
+  const site = request.headers.get('sec-fetch-site')
+  const origin = request.headers.get('origin')
+  const allowed = origin !== null && allowedOrigins.includes(origin)
+  if (site !== null) {
+    return site === 'same-origin' || allowed ? undefined : errorResponse(403, 'Cross-site request')
+  }
+  if (origin !== null && origin !== new URL(request.url).origin && !allowed) {
+    return errorResponse(403, 'Cross-site request')
+  }
+  return undefined
+}
+
 function errorResponse(status: number, message: string) {
   return new Response(JSON.stringify({ error: message }), { status, headers: JSON_HEADERS })
 }
@@ -571,9 +613,21 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
   const config = typedConfig as unknown as AgentConfig
   const maxSteps = config.maxSteps ?? 10
   const report = config.onError ?? ((error: unknown) => console.error('[dopus]', error))
+  const hasConfirmTools = Object.values(config.tools).some((tool) => tool.options.confirm)
 
   return async function handleAgentRequest(request: Request): Promise<Response> {
     const started = Date.now()
+    const refused = refuseRequest(request, config.allowedOrigins)
+    if (refused) return refused
+    const approvalSecret = config.approvalSecret || process.env.DOPUS_APPROVAL_SECRET || undefined
+    if (hasConfirmTools && !approvalSecret && !config.insecureApprovals) {
+      report(
+        new Error(
+          '[dopus] Tools with `confirm` need DOPUS_APPROVAL_SECRET (or `approvalSecret` in defineAgent) to sign approvals. Without it a forged request could run them, so every request is refused. `dopus init` generates one; set it in your deployment too.',
+        ),
+      )
+      return errorResponse(500, 'The assistant is not configured')
+    }
     const deadline = options.maxDuration
       ? Date.now() + options.maxDuration * 1000 * TIME_BUDGET_SHARE
       : undefined
@@ -610,11 +664,16 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
       return errorResponse(400, 'Invalid messages')
     }
     const byAccess = visible.hidden.filter((name) => !visible.hiddenByClient.includes(name))
-    const messages = settleStaleApprovals(
+    const settled = settleStaleApprovals(
       settleStaleApprovals(validated.data, byAccess, user ? NO_ACCESS_REASON : SIGN_IN_REASON),
       visible.hiddenByClient,
       NO_APPROVAL_UI_REASON,
     )
+    // Approvals are signed for this user and expire; an answered card that fails is closed as not run.
+    const signing = approvalSecret ? { secret: approvalSecret, userId: user?.id ?? '' } : undefined
+    const { messages, forModel } = signing
+      ? await checkApprovals(settled, signing)
+      : { messages: settled, forModel: settled }
     const tooLong = messages.some(
       (message) =>
         message.role === 'user' &&
@@ -670,7 +729,6 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
       ...(!user && byAccess.length > 0 ? { access: SIGNED_OUT_NOTE } : {}),
       ...(await config.runtime?.(request, { user, client })),
     }
-    const approvalSecret = config.approvalSecret ?? process.env.DOPUS_APPROVAL_SECRET
     const callOptions =
       typeof config.callOptions === 'function'
         ? await config.callOptions(request, { user })
@@ -694,7 +752,7 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
       ...callOptions,
       model: config.model,
       instructions: buildInstructions(config.prompt, runtime),
-      messages: await convertToModelMessages(messages, {
+      messages: await convertToModelMessages(forModel, {
         tools,
         // Job notices and file references become server-written text; other data parts stay out of the prompt.
         convertDataPart: (part) => {
@@ -748,7 +806,17 @@ export function createAgentHandler<TOOLS extends DopusToolSet>(
     const response = createUIMessageStreamResponse({
       stream: withClosedCards(
         toUIMessageStream({
-          stream: result.stream,
+          stream: signing
+            ? wrapApprovalRequests(result.stream, {
+                ...signing,
+                maxAge:
+                  config.approvalMaxAge !== undefined &&
+                  Number.isFinite(config.approvalMaxAge) &&
+                  config.approvalMaxAge > 0
+                    ? config.approvalMaxAge
+                    : DEFAULT_APPROVAL_MAX_AGE,
+              })
+            : result.stream,
           tools,
           originalMessages: messages,
           // Without it a new reply has no id on the server (onFinish gave ''), so saved replies collided.

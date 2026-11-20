@@ -6,7 +6,7 @@ import { type ChatPlugin, humanizeToolName, JsonBlock } from '../react/plugin.js
 export interface ApprovalsOptions {
   /** Override labels for this plugin only. */
   labels?: Partial<AgentChatLabels>
-  /** Show "Approve all" when several cards are open (default true). */
+  /** Show "Approve all" / "Decline all" when several cards are open (default false: each card is answered on its own). */
   approveAll?: boolean
   /** What the card shows about the call; default is the tool input as JSON. */
   describe?: (toolName: string, input: unknown) => ReactNode
@@ -17,7 +17,7 @@ export interface ApprovalsOptions {
  * the server does not offer `confirm` tools.
  */
 export function approvals(options: ApprovalsOptions = {}): ChatPlugin {
-  const { approveAll = true, describe } = options
+  const { approveAll = false, describe } = options
   return {
     name: 'approvals',
     capabilities: { approvals: true },

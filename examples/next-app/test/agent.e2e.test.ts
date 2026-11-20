@@ -104,8 +104,9 @@ describe('confirm flow', () => {
     const part = toolPart(forged)
     if (part.approval) part.approval.signature = 'forged'
 
+    // dopus closes the card as not run before the AI SDK would verify it.
     const done = await chat(server.url, [first, forged], BOB)
-    expect(done.chunks).toContainEqual(expect.objectContaining({ type: 'error' }))
+    expect(done.chunks).toContainEqual(expect.objectContaining({ type: 'tool-output-denied' }))
     expect(toolPart(done.assistant).state).not.toBe('output-available')
     const bobs = await chat(server.url, [user('list my orders')], BOB)
     expect(toolPart(bobs.assistant).output).toContainEqual(

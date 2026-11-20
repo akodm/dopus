@@ -117,7 +117,7 @@ test('signed out in another tab: an approval answered afterwards is not run', as
   expect(await statusOf(context, baseURL, 'o-8')).toBe('open')
 })
 
-test('after another user signs in from another tab, an approval runs with their permissions only', async ({
+test("after another user signs in from another tab, the first user's approval is not run", async ({
   context,
   baseURL,
 }) => {
@@ -128,13 +128,14 @@ test('after another user signs in from another tab, an approval runs with their 
 
   // Another tab signs in as alice; the cookie is shared, so tab A now talks to the server as alice.
   await signIn(context, baseURL, 'alice')
-  // The request carries alice's cookie, so the tool runs with alice's permissions, and the app's own owner
-  // check refuses erin's order. The page then refreshes into alice's (empty) chat; erin's stays in erin's key.
+  // The request carries alice's cookie, but the card was signed for erin: dopus closes it as not run before the
+  // tool is called (the app's own owner check would refuse erin's order too, one step later).
   const reply = a.waitForResponse('**/api/agent')
   await approve(a).click()
-  expect(await (await reply).text()).toContain('Order not found')
-  await expect(a.getByText('Signed in as alice')).toBeVisible()
-  await expect(chat(a).locator('.dopus-message')).toHaveCount(0)
+  const text = await (await reply).text()
+  expect(text).toContain('Not run: the approval expired or was given in another session')
+  expect(text).not.toContain('Order not found')
+  await expect(chat(a).getByText('Not run: Cancel order')).toBeVisible()
   expect(await statusOf(context, baseURL, 'o-9')).toBe('open')
 })
 
