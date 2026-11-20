@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-11-20
 
 Security defaults changed; see "Upgrading to 0.5" in the README.
 
