@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-11-20
 
 - `dopus init` writes imports through your tsconfig path alias when one points at the project root or `src/`
   (`import agent from '@/agent.config'`, `import '@/components/agent/agent-chat.css'`), so projects that forbid
