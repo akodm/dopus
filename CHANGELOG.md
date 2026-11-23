@@ -1,6 +1,9 @@
 # Changelog
 
-## 0.6.0 — 2026-11-23
+## 0.6.1 — 2026-11-23
+
+0.6.0 was tagged but never published: its release run stopped before npm (the workflow did not install the Firefox
+and WebKit browsers its tests now use). 0.6.1 is the same code with that fixed.
 
 - **Removed `dopus infra aws | cloudflare | gcp`.** dopus is the agent inside your Next.js app; deploying the app is
   yours. Files it already wrote keep working. The README's "Hosting" says what the route needs (streaming,
