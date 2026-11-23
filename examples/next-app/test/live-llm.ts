@@ -12,6 +12,8 @@ import { answer, chat, startServer, text, user } from './server.ts'
 
 const ALICE = 'session=alice'
 const DANA = 'session=dana' // the shop admin
+const ERIN = 'session=erin'
+const BOB = 'session=bob'
 
 type Tool = { name: string; state: string; input?: unknown; output?: unknown; errorText?: string }
 
@@ -143,6 +145,58 @@ try {
     check(
       'calls listAllOrders',
       tools(assistant).some((t) => t.name === 'listAllOrders' && t.state === 'output-available'),
+    )
+  })
+  await step('background job: the agent continues when the app reports it finished', async () => {
+    const first = user('Export my orders to a file.')
+    const started = await chat(server.url, [first], ERIN)
+    show(started.assistant)
+    const start = tools(started.assistant).find((t) => t.name === 'startExport')
+    const jobId = (start?.output as { dopusJob?: string } | undefined)?.dopusJob
+    check('starts the export as a background job', start?.state === 'output-available' && !!jobId)
+    if (!jobId) return
+    // The example's job takes EXAMPLE_JOB_MS (1.5 s); then the chat UI would send this notice.
+    await new Promise((resolve) => setTimeout(resolve, 2500))
+    const notice: UIMessage = {
+      id: 'job-notice',
+      role: 'user',
+      parts: [{ type: 'data-dopus-job', data: { id: jobId } }],
+    }
+    const done = await chat(server.url, [first, started.assistant, notice], ERIN)
+    show(done.assistant)
+    const read = tools(done.assistant).find((t) => t.name === 'getExport')
+    check(
+      'reads the result with getExport',
+      read?.state === 'output-available' && (read.input as { jobId?: string })?.jobId === jobId,
+    )
+    check('tells the user the file', /\/exports\/job-/.test(text(done.assistant)))
+  })
+
+  await step("an approval sent with another user's session is not run", async () => {
+    const first = user('Cancel my order o-7.')
+    const asked = await chat(server.url, [first], ERIN)
+    show(asked.assistant)
+    const pending = tools(asked.assistant).find(
+      (t) => t.name === 'cancelOrder' && t.state === 'approval-requested',
+    )
+    check('asks for approval', !!pending)
+    if (!pending) return
+    // Bob replays erin's approved card: dopus closes it as "Not run" before the tool is called.
+    const replayed = await chat(server.url, [first, answer(asked.assistant, true)], BOB)
+    show(replayed.assistant)
+    const card = tools(replayed.assistant).find((t) => t.name === 'cancelOrder')
+    check('the card is closed, not run', card?.state === 'output-denied')
+    check(
+      'the reply does not claim it was cancelled',
+      !/\b(has been|was|is now) cancell?ed\b/i.test(text(replayed.assistant)),
+    )
+    const erin = await chat(server.url, [user('List my orders.')], ERIN)
+    const listed = tools(erin.assistant).find((t) => t.name === 'listMyOrders')
+    check(
+      'o-7 is still open',
+      (listed?.output as { id: string; status: string }[] | undefined)?.some(
+        (o) => o.id === 'o-7' && o.status === 'open',
+      ) === true,
     )
   })
 } finally {

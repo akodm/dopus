@@ -149,6 +149,21 @@ test.describe('chat history (the example keeps it in sessionStorage, per user)',
   })
 })
 
+test.describe('request checks the route relies on', () => {
+  test('the chat posts JSON and the browser marks it same-origin', async ({ page, baseURL }) => {
+    await openChat(page, baseURL)
+    const request = page.waitForRequest('**/api/agent')
+    await send(page, 'who am I')
+    const headers = await (await request).allHeaders()
+    expect(headers['content-type']).toContain('application/json')
+    // dopus accepts a browser request by Sec-Fetch-Site, else by Origin: each browser must send one that passes.
+    const site = headers['sec-fetch-site']
+    if (site !== undefined) expect(site).toBe('same-origin')
+    else expect(headers.origin).toBe(new URL(baseURL ?? '').origin)
+    await expect(chat(page).getByText('✓ Get current user')).toBeVisible()
+  })
+})
+
 test.describe('chat basics', () => {
   test('an over-long message offers a new chat, which clears the conversation', async ({
     page,

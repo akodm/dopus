@@ -33,13 +33,13 @@ jobs:
       - run: pnpm example:build
       # Starts `next start` with a scripted model: tools must see the caller's cookies.
       - run: pnpm example:e2e
-      # The copied chat UI in a real browser (Playwright, scripted model): approvals, stale cards, background jobs.
+      # The copied chat UI in real browsers (Playwright, scripted model): Chromium, Firefox and WebKit, one server each.
       - if: matrix.node == 24
-        # --with-deps adds apt packages (mostly fonts); the runner image already has the libraries Chromium needs, so
-        # an apt mirror outage should not block the run.
+        # --with-deps adds the apt packages WebKit and Firefox need; retry once without them if an apt mirror is down
+        # (Chromium still runs then, and the browsers that lack libraries fail loudly).
         run: |
-          pnpm --filter next-app exec playwright install --with-deps --only-shell chromium ||
-          pnpm --filter next-app exec playwright install --only-shell chromium
+          pnpm --filter next-app exec playwright install --with-deps --only-shell chromium firefox webkit ||
+          pnpm --filter next-app exec playwright install --only-shell chromium firefox webkit
       - if: matrix.node == 24
         run: pnpm example:ui
       - if: failure() && matrix.node == 24

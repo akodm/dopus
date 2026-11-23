@@ -9,9 +9,9 @@
     "typecheck": "tsc --noEmit",
     "test:e2e": "vitest run",
     "test:live": "node test/live-llm.ts",
-    "test:ui": "playwright test",
-    "test:ui:db": "playwright test -c playwright.db.config.ts",
-    "test:ui:channel": "playwright test -c playwright.channel.config.ts",
+    "test:ui": "playwright test --project=chromium && playwright test --project=firefox && playwright test --project=webkit",
+    "test:ui:db": "playwright test -c playwright.db.config.ts --project=chromium && playwright test -c playwright.db.config.ts --project=firefox && playwright test -c playwright.db.config.ts --project=webkit",
+    "test:ui:channel": "playwright test -c playwright.channel.config.ts --project=chromium && playwright test -c playwright.channel.config.ts --project=firefox && playwright test -c playwright.channel.config.ts --project=webkit",
     "worker": "node worker/server.mjs"
   },
   "dependencies": {
