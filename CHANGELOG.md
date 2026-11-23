@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-11-23
 
 - **Removed `dopus infra aws | cloudflare | gcp`.** dopus is the agent inside your Next.js app; deploying the app is
   yours. Files it already wrote keep working. The README's "Hosting" says what the route needs (streaming,
