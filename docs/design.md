@@ -9,7 +9,7 @@ and run inside the agent's request with the caller's permissions.
 Scope (decided 2026-11-11): short tool calls inside one request — answers about the user's data and small changes.
 Out of scope: long-running or background work (handed to the app's queue via start-job + status tools), autonomous or
 multi-agent workflows, built-in memory/RAG, non-Next frameworks and the Pages Router, and running the agent outside the
-Next.js app. `dopus infra` writes deploy config only. New features are judged against this scope.
+Next.js app. (`dopus infra`, which wrote deploy config, was removed in 0.6.) New features are judged against this scope.
 
 Background jobs (decided 2026-11-11): long work still runs outside the agent, but the agent can pick it up again. A tool
 marked `job` returns a job ID; the app's own channel (Supabase Realtime, WebSocket, SSE, polling) tells the chat UI the

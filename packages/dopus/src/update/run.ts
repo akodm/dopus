@@ -244,7 +244,7 @@ export function oldChatUINote(status: FileStatus): string {
   const head =
     'Your agent-chat.tsx is the old self-contained chat UI (0.2.x) and keeps working as it is.'
   const tail =
-    'carry your changes over as CSS, labels or plugins. See "Upgrading from 0.2" in the README.'
+    'carry your changes over as CSS, labels or plugins. See "Upgrading from 0.2" in docs/upgrading.md.'
   if (status === 'saved-new') {
     return `${head}\nTo move to the package UI, replace it with agent-chat.tsx.new and ${tail}`
   }

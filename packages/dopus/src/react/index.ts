@@ -1,3 +1,4 @@
+export { pollingChannel, sseChannel } from './channels.js'
 export {
   type AgentChannel,
   AgentChat,

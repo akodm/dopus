@@ -16,9 +16,6 @@
     "example:e2e": "pnpm --filter next-app test:e2e",
     "example:ui": "pnpm --filter next-app test:ui",
     "smoke": "node scripts/pack-smoke.mjs",
-    "aws:emu": "node scripts/lambda-emu.mjs",
-    "cf:e2e": "node scripts/cloudflare-e2e.mjs",
-    "gcp:e2e": "node scripts/gcp-e2e.mjs",
     "example:live": "pnpm --filter next-app test:live",
     "templates:history": "node scripts/template-history.mjs"
   },

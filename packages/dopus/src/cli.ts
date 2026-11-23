@@ -2,9 +2,6 @@
 import { spawn } from 'node:child_process'
 import { parseArgs } from 'node:util'
 import * as p from '@clack/prompts'
-import { runInfraAws } from './infra/aws.js'
-import { runInfraCloudflare } from './infra/cloudflare.js'
-import { runInfraGcp } from './infra/gcp.js'
 import { InitError } from './init/detect.js'
 import { type InitIO, installArgs, runInit } from './init/run.js'
 import { PRESETS, type PresetId } from './init/templates.js'
@@ -17,9 +14,6 @@ const HELP = `dopus ${VERSION}
 Usage:
   dopus init [options]        Add an AI agent to this Next.js app
   dopus update [options]      Update the chat UI, route and preset prompt that init copied
-  dopus infra aws [options]   Prepare the agent route for AWS Lambda (OpenNext streaming + SST snippet)
-  dopus infra cloudflare      Prepare the app for Cloudflare Workers (@opennextjs/cloudflare)
-  dopus infra gcp             Prepare the app for Cloud Run (standalone build + Dockerfile)
 
 Options for init:
   --provider <id>        openai | anthropic | google
@@ -35,11 +29,6 @@ Options for update (first install the new version: pnpm add dopus@latest):
   -y, --yes              Do not ask: files you edited get the new template next to them as <file>.new
   --force                Replace files you edited too
   --no-install           Do not install dependencies
-  --cwd <dir>            Project root
-
-Options for infra:
-  -y, --yes              Do not ask before installing @opennextjs/aws
-  --no-install           Print the install command instead
   --cwd <dir>            Project root
 
   -h, --help             Show this help
@@ -223,42 +212,12 @@ async function update(args: string[]) {
   p.outro('What changed: https://github.com/akodm/dopus/blob/main/CHANGELOG.md')
 }
 
-async function infra(args: string[]) {
-  const [target, ...rest] = args
-  const runners = { aws: runInfraAws, cloudflare: runInfraCloudflare, gcp: runInfraGcp }
-  if (!target || !(target in runners)) {
-    throw new InitError('Usage: dopus infra aws | cloudflare | gcp')
-  }
-  const { values } = parseArgs({
-    args: rest,
-    options: {
-      yes: { type: 'boolean', short: 'y' },
-      install: { type: 'boolean', default: true },
-      'no-install': { type: 'boolean' },
-      cwd: { type: 'string' },
-    },
-    allowNegative: true,
-  })
-  p.intro(`dopus ${VERSION} · infra ${target}`)
-  const run = runners[target as keyof typeof runners]
-  await run(
-    {
-      cwd: values.cwd ?? process.cwd(),
-      yes: values.yes,
-      install: values['no-install'] ? false : values.install,
-    },
-    { ...io, note: (message, title) => p.note(message, title) },
-  )
-  p.outro('Done. Nothing was deployed.')
-}
-
 async function main() {
   const [command, ...rest] = process.argv.slice(2)
   if (command === '--version' || command === '-v') return console.log(VERSION)
-  // `dopus init --help` / `dopus infra aws -h` print the help instead of failing on an unknown option.
+  // `dopus init --help` / `dopus update -h` print the help instead of failing on an unknown option.
   if (rest.includes('--help') || rest.includes('-h')) return console.log(HELP)
   if (command === 'init') return init(rest)
-  if (command === 'infra') return infra(rest)
   if (command === 'update') return update(rest)
   console.log(HELP)
   if (command && command !== '--help' && command !== '-h') process.exitCode = 1

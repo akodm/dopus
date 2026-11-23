@@ -6,7 +6,7 @@ import { JOB_USAGE } from './job.js'
  * Identity of the user who sent the agent request.
  *
  * Tools that run inside the request (the default) can read cookies/headers directly and do not need this.
- * It exists for execution that leaves the request (background jobs, infra adapters), where the
+ * It exists for execution that leaves the request (background jobs), where the
  * request context is gone and identity has to be passed explicitly. Keep it serialisable.
  */
 export interface AgentUser {

@@ -75,8 +75,14 @@ export interface AgentChatHistory {
 }
 
 export interface AgentChannel {
-  /** Start listening and call `finished(jobId)` for each job that finishes. Return a function that stops. */
-  subscribe: (finished: (jobId: string) => void) => () => void
+  /**
+   * Start listening and call `finished(jobId)` for each job that finishes. Return a function that stops.
+   * `waiting()` gives the IDs of the jobs this chat is waiting for right now, e.g. to poll only for those.
+   */
+  subscribe: (
+    finished: (jobId: string) => void,
+    context: { waiting: () => readonly string[] },
+  ) => () => void
 }
 
 const NO_PLUGINS: readonly ChatPlugin[] = []
@@ -270,9 +276,18 @@ export function AgentChat({
   // Jobs the channel reported finished. Kept even before this chat shows the job (a job can finish before
   // its tool output has streamed in); only IDs this chat started are acted on.
   const [finishedJobs, setFinishedJobs] = useState<Set<string>>(() => new Set())
+  const waitingRef = useRef<readonly string[]>([])
   useEffect(() => {
     if (!channel) return
-    return channel.subscribe((id) => setFinishedJobs((prev) => new Set(prev).add(id)))
+    try {
+      return channel.subscribe(
+        (id) => setFinishedJobs((prev) => (prev.has(id) ? prev : new Set(prev).add(id))),
+        { waiting: () => waitingRef.current },
+      )
+    } catch (error) {
+      // A broken channel must not take the chat down; finished jobs are just not announced.
+      console.error('[dopus] channel.subscribe failed', error)
+    }
   }, [channel])
 
   // Derived from the messages, so a new chat (or another tab) never reacts to jobs it did not start.
@@ -289,6 +304,7 @@ export function AgentChat({
     const waiting = new Set([...started].filter((id) => !reported.has(id)))
     return { waitingJobs: waiting, readyJobs: [...waiting].filter((id) => finishedJobs.has(id)) }
   }, [messages, finishedJobs])
+  waitingRef.current = [...waitingJobs].filter((id) => !finishedJobs.has(id))
 
   useEffect(() => {
     if (readyJobs.length === 0 || status !== 'ready' || sending) return

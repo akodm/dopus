@@ -1,8 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **Removed `dopus infra aws | cloudflare | gcp`.** dopus is the agent inside your Next.js app; deploying the app is
+  yours. Files it already wrote keep working. The README's "Hosting" says what the route needs (streaming,
+  `maxDuration`, the secrets).
+- `sseChannel(url)` and `pollingChannel(url, { intervalMs })` in `dopus/react`: ready-made channels for background jobs.
+  The polling one asks only while the chat waits for a job and also picks up a job that finished while the page was
+  away. A channel's `subscribe` now gets `{ waiting }` as a second argument; a channel that throws is logged instead
+  of breaking the chat.
+- README: shorter. Background jobs follow permissions; recipes (RAG, spreadsheets, images and PDFs, large files, AI
+  gateway) moved to `docs/recipes.md`, upgrade notes to `docs/upgrading.md`.
+
 ## 0.5.0 — 2026-11-20
 
-Security defaults changed; see "Upgrading to 0.5" in the README.
+Security defaults changed; see "Upgrading to 0.5" in docs/upgrading.md.
 
 - **A missing approval secret no longer turns approvals off.** If any tool has `confirm` and neither
   `DOPUS_APPROVAL_SECRET` nor `approvalSecret` is set, every request is refused (500) and `onError` says why. Before,

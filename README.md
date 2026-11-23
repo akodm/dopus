@@ -18,6 +18,8 @@ pnpm dopus init
 - **Reuse what you have.** Register the server actions and functions your app already has. You don't write a second API for the agent.
 - **Permissions come for free.** Tools run inside the agent's request, so `cookies()` and `headers()` in your server functions see the signed-in user. Your own auth and ownership checks keep working unchanged.
 - **Writes wait for the user.** Mark a tool `confirm: true` and the user approves each call in the chat. Approvals are signed so a client cannot forge one.
+- **Long work stays outside.** A tool can start a job in your queue or Lambda and return at once; when your app
+  rings the chat's channel, the agent reads the result with another tool and carries on.
 - **You own the generated code.** `init` copies the route, prompts and a thin chat wrapper (plus its CSS) into your project, shadcn-style. The runtime and the chat UI itself live in the package; see [Chat UI](#chat-ui).
 
 Built on the [Vercel AI SDK](https://ai-sdk.dev) 7. Supports OpenAI, Anthropic and Google models.
@@ -34,8 +36,8 @@ quick server-function calls inside one request, usually a few seconds.
 - Autonomous, scheduled or multi-agent workflows.
 - Built-in memory, RAG or a vector store. If you need search over documents, expose it as a tool.
 - Frameworks other than Next.js, and the Pages Router.
-- Running the agent somewhere other than your Next.js app. `dopus infra` only writes the deploy config that keeps the
-  agent route streaming on AWS, Cloudflare or Cloud Run.
+- Running the agent somewhere other than your Next.js app, or deploying it for you. Host the app as you already do
+  (see [Hosting](#hosting)).
 
 ---
 
@@ -198,54 +200,6 @@ Only two kinds of error message reach the model:
 - Next.js `redirect()`, `notFound()`, `forbidden()` and `unauthorized()`, which are translated into plain messages such as "the user is not signed in".
 
 Any other error goes to `onError` and is replaced with a generic message, so database errors and stack details stay on the server. The browser sees the same text as the model: the `ToolError` message, or the generic one.
-
-## Search your documents (RAG)
-
-Retrieval is a tool. Write a server function that searches your vector store and register it like any other:
-
-```ts
-// agent.config.ts
-import { defineTool } from 'dopus'
-import { z } from 'zod'
-import { searchDocs } from './app/actions/docs' // your own server function
-
-// in `tools: { ... }`
-searchDocs: defineTool((input) => searchDocs(input.query), {
-  description: 'Searches the help articles and returns the best matching passages with their source.',
-  usage: 'When the user asks how something works or what a policy says. Cite the title and url in the answer.',
-  input: z.object({ query: z.string() }),
-  output: (result) => result.map(({ title, url, passage }) => ({ title, url, passage })),
-}),
-```
-
-```ts
-// app/actions/docs.ts
-'use server'
-import { ToolError } from 'dopus'
-
-// getSession, db and embed are your app's own session, database client and embedding call.
-export async function searchDocs(query: string) {
-  const session = await getSession()
-  if (!session) throw new ToolError('Sign in to search the documents.')
-  // The permission filter is part of the query, with the session's org, so a passage the user may not read is never
-  // retrieved. Do not filter the results afterwards, and never take the org from the model's input.
-  return db.query(
-    `select title, url, passage from chunks where org_id = $1 order by embedding <=> $2 limit 5`,
-    [session.orgId, await embed(query)],
-  )
-}
-```
-
-- **The filter goes inside the search query.** The function runs with the caller's cookie, so it knows the user. Anything
-  the model can pass in (`query`, a filter argument) is only a request.
-- **Trim with `output`.** Send the model the passages and not the embeddings, scores or internal ids. Keep `limit`
-  small; the results count against the history on every later step.
-- **Return `title` and `url`** so the model can cite its sources, and say so in `usage`.
-- **Retrieved text is untrusted input.** A document may contain instructions. Tools that write keep `confirm: true`, so
-  an injected "delete the account" still stops at the approval card. See [Permissions and security](#permissions-and-security).
-- **There is no "retrieve on every turn" hook.** The `runtime` layer does not receive the messages, so dopus cannot
-  search for the user's question before the model answers. The tool is the supported way: the model decides when to
-  search, and the tool line in the chat shows it did.
 
 ## Permissions and security
 
@@ -426,18 +380,169 @@ model tokens too; rate-limit them in `beforeRequest` (see [Audit log, usage and 
 
 **Running tools outside the request.** Background jobs and queues lose the request's cookies. For that case, define `identify(request)` to resolve a serialisable user. Tools then receive it as `ctx.user` and can pass it on explicitly. dopus itself always runs tools inside the request; this is for jobs your tools hand off.
 
-## Prompts
+## Background jobs
 
-dopus builds the system prompt in four layers, ordered from stable to volatile so that providers can cache the prefix:
+For work that takes longer than a request: a Lambda that calls an LLM for a minute, a report, a bulk import. The tool
+starts the job and returns at once; your worker does the work; your app announces "job X finished" on a channel it
+already has (Supabase Realtime, a WebSocket, SSE, polling). The chat UI hears it and the agent continues: it reads the
+result with another of your tools and does what the user asked next.
 
-1. **Core**: about 15 lines of tool-use and safety rules, shipped in the package. Replace it with `prompt.core = '...'` or drop it with `false`. It is exported as `CORE_PROMPT`.
-2. **Preset**: `agent/prompts/preset.ts`, copied by `init`. The presets are `general`, `customer-support` and `internal-ops`. Edit it freely.
-3. **App context**: `agent/prompts/app.ts`, a description of your service. You write this.
-4. **Runtime**: per-request facts. These are the browser's `locale` and `page`, plus whatever `runtime` returns.
+```
+user: "build the workload report, then assign unassigned tasks to whoever is least busy"
+  → startWorkloadReport          returns { jobId } at once; the agent says it started, the turn ends
+  … your worker runs for a minute, saves the result, publishes "job-7 finished" on your channel …
+  → the chat UI hears job-7      sends a notice carrying only the ID; a new turn starts
+  → getReportResult({ jobId })   your tool reads the result and checks it belongs to the user
+  → assignTask(...)              confirmed tools still stop at the approval card
+```
 
-Write your prompts once, in one language. The agent answers in the request's locale. For per-language tone or terminology, add short notes to `locales` (`{ ko: '존댓말을 사용하세요.' }`). Only the note that matches the request locale is included.
+**Server**: mark the tool that starts the job, and add a tool that reads the result.
 
-Anthropic gets an explicit cache breakpoint after layer 3. OpenAI and Gemini cache prompt prefixes automatically.
+```ts
+startReport: defineTool(() => startReportJob(), {           // invoke the Lambda / enqueue, return { jobId } at once
+  description: 'Starts the workload report. Takes about a minute.',
+  input: z.object({}),
+  job: (result) => result.jobId,                              // this tool starts a background job
+}),
+getReportResult: defineTool((input) => readReport(input.jobId), {   // check the job belongs to the caller
+  description: 'Reads a report job by its id: status and, when done, the report.',
+  usage: 'After the app says a report job has finished.',
+  input: z.object({ jobId: z.string() }),
+}),
+```
+
+`job` returns the job's ID (letters, digits, `_ . : -`, up to 128 characters). dopus tells the model the job runs in
+the background and that it will be told when it finishes, so it does not poll.
+
+**Client**: give the chat a `channel`. Two are ready-made in `dopus/react`; create the channel once, in a client
+component (it holds functions):
+
+```tsx
+// components/agent/agent.tsx
+'use client'
+import { pollingChannel } from 'dopus/react'
+import { type AgentChatProps, AgentWidget } from './agent-chat'
+
+const channel = pollingChannel('/api/jobs/status') // or sseChannel('/api/jobs/events')
+
+export function Agent(props: AgentChatProps) {
+  return <AgentWidget {...props} channel={channel} />
+}
+```
+
+Then use `<Agent />` in your layout instead of `<AgentWidget />`. Your endpoint returns job IDs only, never results:
+
+| Channel                                | Your endpoint                                                                                                                                              | Picks up a job that finished while the page was away |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `pollingChannel(url, { intervalMs })`  | `GET url?jobs=job-7,job-8` → `{ "finished": ["job-7"] }`, the caller's own jobs only. Asked every `intervalMs` (5000) only while this chat waits for a job | Yes, on its next check                               |
+| `sseChannel(url, { withCredentials })` | Server-Sent Events, one message per finished job of the signed-in user: `{"jobId":"job-7"}` or `job-7`                                                     | No: a ring during a reload or reconnect is missed    |
+
+```ts
+// app/api/jobs/status/route.ts — for pollingChannel
+export async function GET(request: Request) {
+  const session = await getSession()
+  if (!session) return Response.json({ finished: [] }, { status: 401 })
+  const asked = (new URL(request.url).searchParams.get('jobs') ?? '').split(',').slice(0, 50)
+  const finished = await db.jobs.finishedIds({ ids: asked, owner: session.userId })
+  return Response.json({ finished })
+}
+```
+
+Anything else (Supabase Realtime, a WebSocket) is a few lines: `subscribe(finished)` calls `finished(jobId)` for each
+finished job and returns a function that stops listening.
+
+```ts
+const channel: AgentChannel = {
+  subscribe(finished) {
+    const ch = supabase
+      .channel('jobs', { config: { private: true } })
+      .on('broadcast', { event: 'job-done' }, ({ payload }) => finished(payload.jobId))
+      .subscribe()
+    return () => {
+      supabase.removeChannel(ch)
+    }
+  },
+}
+```
+
+A channel that throws is logged and the chat keeps working; finished jobs are then simply not announced.
+
+The channel does not have to be your Next.js app. The example has a separate worker server
+(`examples/next-app/worker/server.mjs`): the app hands it the job, the worker reports the result back to the app
+(`app/api/jobs/done`, with a shared secret), then rings the browser on its own SSE stream. Its browser tests
+(`pnpm --filter next-app test:ui:channel`) start both servers and check that the agent continues by itself, that a job
+finishing while an approval card is open waits for the answer and the approved call still runs, and that another
+user's chat is not rung.
+
+**How it is kept safe:**
+
+- **The channel is a doorbell, not a mailbox.** Only the job ID goes from the channel to the server. The text the model
+  sees ("Background job X has finished…") is written by the server, and the result comes from your tool, which checks
+  permissions. A forged or replayed event can at most make the agent look up a job the user can already read.
+- **Only this chat's jobs.** The UI reacts only to IDs that a tool in this conversation returned and that it has not
+  reported yet. Another tab, or a new chat, ignores them.
+- **Follow-ups are capped.** After `maxJobFollowUps` (default 3) automatic turns in a row, a finished job is shown in
+  the chat but the agent waits for the user's next message, so a job that starts another job cannot loop.
+- **Approvals still apply.** An automatic turn stops at the approval card like any other, and a finished job waits
+  while a card is open or answered but not yet sent back, so the follow-up never makes an approved call stale.
+
+**Limits:**
+
+- **A worker that never reports.** If your worker crashes without marking the job finished, the chat keeps showing
+  "working in the background". Mark failed jobs as finished too, and let your result tool say what went wrong.
+- The follow-up runs only while the chat is open in a browser. If the user closes the tab, the result is still in your
+  app (show it there); the agent just does not act on it. Work that must continue without the user belongs in your
+  worker, not in the agent.
+- Each finished job costs one more model call.
+
+## Timeouts and long-running tools
+
+An agent turn can take a while: several model calls plus your tools. Two kinds of limits apply, handled differently.
+
+**Idle timeouts** (CloudFront, ALB, nginx: usually 60 s without a byte). Handled:
+
+- The route streams tokens and tool states as they happen; it never waits for the whole answer.
+- While a slow tool runs, an SSE comment (`: keep-alive`) goes out every 15 s (`keepAlive` option). Clients ignore it.
+- Waiting for an approval holds nothing open. The request ends at the approval card, and the answer starts a new one.
+
+**The platform's total limit** for one request (Vercel `maxDuration`, Lambda timeout, Cloud Run `--timeout`). It cannot be
+streamed around, so dopus stays inside it:
+
+```ts
+// app/api/agent/route.ts (as generated)
+export const maxDuration = 60
+export const POST = createAgentHandler(agent, { maxDuration })
+```
+
+With `maxDuration` passed, once 75% of it has passed the agent starts no more tool calls. It answers with what it has done
+and says what is left, and the user can reply "continue". Without it, a long turn is cut off mid-stream and the chat shows
+an error. A step already running (one model call or one tool) is not interrupted, so keep single tools well under the
+limit. `maxSteps` (default 10) also bounds a turn.
+
+**Tools that take longer than a request.** Exports, bulk updates, report generation and the like should not run inside a
+tool call. Split them into two tools:
+
+```ts
+startExport: defineTool((input) => startExportJob(input), {   // enqueue, return { jobId } at once
+  description: 'Starts a CSV export and returns a job id.',
+  input: z.object({ from: z.string(), to: z.string() }),
+  confirm: true,
+}),
+exportStatus: defineTool((input) => getExportJob(input.jobId), {   // { status, url? }
+  description: 'Returns the status of an export job and its download link when done.',
+  input: z.object({ jobId: z.string() }),
+}),
+```
+
+The job runs in your queue or background worker, outside the request, so it does not have the request's cookies. Check
+permissions in `startExportJob` and pass the user to the job explicitly (see `identify` and `ctx.user`). Have `getExportJob`
+check that the job belongs to the caller.
+
+With a status tool alone, the user has to ask "is it done?". To have the agent continue by itself when the job finishes,
+mark the start tool with `job` and give the chat UI a channel: see [Background jobs](#background-jobs).
+
+**If a turn is cut anyway**, tools that already ran stay done. "Retry" asks the model again and may call a tool again.
+Tools behind `confirm: true` need a new approval; make other writes idempotent.
 
 ## Chat UI
 
@@ -671,76 +776,7 @@ describeFile: defineTool((input) => describeFile(input.fileId), {
 `describeFile` looks the id up for the session's user and returns "not found" for anyone else's file. The example app
 has an `/api/files` route and this tool in `examples/next-app` (`app/api/files/route.ts`, `app/actions/files.ts`).
 
-**Spreadsheets.** For an upload that becomes data, split the work in tools so the model never has to read a whole
-file, and so the write is a step the user approves:
-
-- `inspectSpreadsheet(fileId)`: sheet names, headers, row count and a few sample rows;
-- `querySpreadsheet(fileId, sheet, filter, limit)`: rows that match, capped (use `output` to trim);
-- `previewImport(fileId, mapping)`: validates the rows against your schema and returns what would change, writing nothing;
-- `importOrders(fileId, mapping)` (your own name): does the import, with `confirm: true`, so the user sees the
-  mapping and the counts before anything is written.
-
-Every one of them checks the file's owner first.
-
-**Images and PDFs.** Let a tool read the file and return text; do not put the file itself in the conversation. dopus
-sends the whole history to the model on every step, so a 20-page PDF in a message is paid for again on every later
-question, and big bodies hit request size limits. A tool's answer stays a few hundred tokens:
-
-```ts
-// agent.config.ts
-readDocument: defineTool((input) => readDocument(input.fileId, input.question), {
-  description: 'Reads an attached image or PDF and answers a question about it.',
-  usage: 'When the user attaches an image or a PDF. Pass what they want to know, e.g. "the termination clauses".',
-  input: z.object({ fileId: z.string(), question: z.string() }),
-}),
-```
-
-```ts
-// app/actions/documents.ts
-'use server'
-import { anthropic } from '@ai-sdk/anthropic'
-import { generateText } from 'ai'
-import { ToolError } from 'dopus'
-
-// getSession and files are your app's own session and file storage.
-export async function readDocument(fileId: string, question: string) {
-  const session = await getSession()
-  if (!session) throw new ToolError('Sign in to read files.')
-  const file = await files.find(fileId)
-  if (!file || file.ownerId !== session.userId) throw new ToolError('File not found.')
-  if (!/^(image\/(png|jpeg|gif|webp)|application\/pdf)$/.test(file.type)) {
-    throw new ToolError('Only images and PDFs can be read.')
-  }
-  // One model call that sees the file. Any model that reads images and PDFs works; a small one is usually enough.
-  const { text } = await generateText({
-    model: anthropic('claude-haiku-5-5'),
-    maxOutputTokens: 1000,
-    messages: [
-      {
-        role: 'user',
-        content: [
-          { type: 'file', data: file.bytes, mediaType: file.type },
-          {
-            type: 'text',
-            text: `Answer from this file only, briefly, quoting where it matters: ${question}`,
-          },
-        ],
-      },
-    ],
-  })
-  return { name: file.name, answer: text }
-}
-```
-
-- **The question goes to the tool**, so it reads only what is needed, and a second question about the same file is
-  another short call instead of the whole file again.
-- **The file's text is untrusted input**, like a retrieved passage: tools that write keep `confirm: true`.
-- **Your own limits apply here**: page count, file size, or an OCR service instead of a model. They are your code.
-
-**Large files.** A scanned contract of 80 pages, or a batch of invoices, can take longer than a request. Make reading
-it a [background job](#background-jobs): `startDocumentRead(fileId, question)` hands the file to your worker with
-`job: (result) => result.jobId` and returns at once; the worker saves the answer; your channel rings; the agent reads
-it with `getDocumentRead(jobId)` (which checks the owner) and carries on.
+Recipes for spreadsheets, images, PDFs and large files are in [docs/recipes.md](docs/recipes.md).
 
 ### Chat history
 
@@ -823,35 +859,22 @@ Several tabs of the same user (checked in the browser, `examples/next-app/test/u
   so within the card's lifetime the second one reaches your server function again. Check the current state there
   ("already cancelled") rather than relying on the card.
 
-### Upgrading to 0.5
+### Upgrading
 
-0.5 changes security defaults. Check these after upgrading:
+Breaking changes and what to do: [docs/upgrading.md](docs/upgrading.md).
 
-- **`DOPUS_APPROVAL_SECRET` must be set** wherever the agent runs, if any tool has `confirm`; otherwise every request
-  gets a 500. `dopus init` put it in `.env.local`; copy it to your hosting's environment (or set `approvalSecret`).
-- **Only same-origin JSON requests reach the route.** The chat UI already sends them. If you post to `/api/agent` from
-  another origin, add it to `allowedOrigins`; if you call it from scripts, send `content-type: application/json`.
-- **Approvals expire and belong to one user.** A card answered after `approvalMaxAge` (600 seconds) or from another
-  user's session is not run. Cards that were open while you deployed (signed by 0.4) show "Not run" when answered;
-  the model asks again.
-- **"Approve all" is off.** Pass `approvals({ approveAll: true })` to bring it back.
+## Prompts
 
-### Upgrading from 0.2
+dopus builds the system prompt in four layers, ordered from stable to volatile so that providers can cache the prefix:
 
-Until 0.3 the whole chat UI was in `agent-chat.tsx` (several hundred lines). Now it is in the package, and `dopus update`
-moves your copy over:
+1. **Core**: about 15 lines of tool-use and safety rules, shipped in the package. Replace it with `prompt.core = '...'` or drop it with `false`. It is exported as `CORE_PROMPT`.
+2. **Preset**: `agent/prompts/preset.ts`, copied by `init`. The presets are `general`, `customer-support` and `internal-ops`. Edit it freely.
+3. **App context**: `agent/prompts/app.ts`, a description of your service. You write this.
+4. **Runtime**: per-request facts. These are the browser's `locale` and `page`, plus whatever `runtime` returns.
 
-- **An untouched 0.2.x copy** is replaced by the thin wrapper above (`toolLog()` and `approvals()`, which is what the
-  old UI showed). It has the same path and exports (`AgentChat`, `AgentWidget`, the types), so your layout and your own
-  wrappers keep building. `agent-chat.css` is updated the same way.
-- **An edited copy** is left as it is, and the wrapper is written next to it as `agent-chat.tsx.new`. The old file is
-  self-contained and keeps working. Merge when you want the plugins: move your changes into CSS, `labels`, plugin
-  options or a plugin of your own.
-- Your own wrappers around the chat (such as `agent.tsx` with `channel` and `history`) are not touched.
+Write your prompts once, in one language. The agent answers in the request's locale. For per-language tone or terminology, add short notes to `locales` (`{ ko: '존댓말을 사용하세요.' }`). Only the note that matches the request locale is included.
 
-A custom client built on `useChat` that sends a `dopus` field (for example `dopus: {}`) without `approvals: true` no
-longer gets `confirm` tools. Send `dopus: { approvals: true }` if your client shows approval cards. A client that sends
-no `dopus` field is unchanged.
+Anthropic gets an explicit cache breakpoint after layer 3. OpenAI and Gemini cache prompt prefixes automatically.
 
 ## Configuration
 
@@ -924,207 +947,21 @@ defineAgent({
   were cache reads.
 - The chat UI shows a generic error for a 429. Pass your own `labels.error` if you want different wording.
 
-## Timeouts and long-running tools
+## Hosting
 
-An agent turn can take a while: several model calls plus your tools. Two kinds of limits apply, handled differently.
+The agent is one streaming route in your Next.js app; host the app as you already do. Three things matter:
 
-**Idle timeouts** (CloudFront, ALB, nginx: usually 60 s without a byte). Handled:
+- **Streaming.** The reply is streamed (Server-Sent Events). Vercel and any Node server stream it as is. On AWS
+  Lambda use response streaming (OpenNext `aws-lambda-streaming`), and do not put API Gateway HTTP APIs in front of
+  `/api/agent`: they cap requests at 30 s and buffer the response.
+- **Turn length.** A turn must finish within the platform's request limit. Set `maxDuration` in
+  `app/api/agent/route.ts` to that limit; the agent stops calling tools at 75% of it and answers with what it has.
+  While a slow tool runs, dopus writes an SSE comment every 15 s (`keepAlive`) so proxies such as CloudFront, ALB and
+  nginx do not drop the stream.
+- **Secrets.** Set your provider's API key and `DOPUS_APPROVAL_SECRET` in the hosting environment (`init` only wrote
+  them to `.env.local`).
 
-- The route streams tokens and tool states as they happen; it never waits for the whole answer.
-- While a slow tool runs, an SSE comment (`: keep-alive`) goes out every 15 s (`keepAlive` option). Clients ignore it.
-- Waiting for an approval holds nothing open. The request ends at the approval card, and the answer starts a new one.
-
-**The platform's total limit** for one request (Vercel `maxDuration`, Lambda timeout, Cloud Run `--timeout`). It cannot be
-streamed around, so dopus stays inside it:
-
-```ts
-// app/api/agent/route.ts (as generated)
-export const maxDuration = 60
-export const POST = createAgentHandler(agent, { maxDuration })
-```
-
-With `maxDuration` passed, once 75% of it has passed the agent starts no more tool calls. It answers with what it has done
-and says what is left, and the user can reply "continue". Without it, a long turn is cut off mid-stream and the chat shows
-an error. A step already running (one model call or one tool) is not interrupted, so keep single tools well under the
-limit. `maxSteps` (default 10) also bounds a turn.
-
-**Tools that take longer than a request.** Exports, bulk updates, report generation and the like should not run inside a
-tool call. Split them into two tools:
-
-```ts
-startExport: defineTool((input) => startExportJob(input), {   // enqueue, return { jobId } at once
-  description: 'Starts a CSV export and returns a job id.',
-  input: z.object({ from: z.string(), to: z.string() }),
-  confirm: true,
-}),
-exportStatus: defineTool((input) => getExportJob(input.jobId), {   // { status, url? }
-  description: 'Returns the status of an export job and its download link when done.',
-  input: z.object({ jobId: z.string() }),
-}),
-```
-
-The job runs in your queue or background worker, outside the request, so it does not have the request's cookies. Check
-permissions in `startExportJob` and pass the user to the job explicitly (see `identify` and `ctx.user`). Have `getExportJob`
-check that the job belongs to the caller.
-
-With a status tool alone, the user has to ask "is it done?". To have the agent continue by itself when the job finishes,
-mark the start tool with `job` and give the chat UI a channel: see [Background jobs](#background-jobs).
-
-**If a turn is cut anyway**, tools that already ran stay done. "Retry" asks the model again and may call a tool again.
-Tools behind `confirm: true` need a new approval; make other writes idempotent.
-
-## Background jobs
-
-For work that takes longer than a request: a Lambda that calls an LLM for a minute, a report, a bulk import. The tool
-starts the job and returns at once; your worker does the work; your app announces "job X finished" on a channel it
-already has (Supabase Realtime, a WebSocket, SSE, polling). The chat UI hears it and the agent continues: it reads the
-result with another of your tools and does what the user asked next.
-
-```
-user: "build the workload report, then assign unassigned tasks to whoever is least busy"
-  → startWorkloadReport          returns { jobId } at once; the agent says it started, the turn ends
-  … your worker runs for a minute, saves the result, publishes "job-7 finished" on your channel …
-  → the chat UI hears job-7      sends a notice carrying only the ID; a new turn starts
-  → getReportResult({ jobId })   your tool reads the result and checks it belongs to the user
-  → assignTask(...)              confirmed tools still stop at the approval card
-```
-
-**Server**: mark the tool that starts the job, and add a tool that reads the result.
-
-```ts
-startReport: defineTool(() => startReportJob(), {           // invoke the Lambda / enqueue, return { jobId } at once
-  description: 'Starts the workload report. Takes about a minute.',
-  input: z.object({}),
-  job: (result) => result.jobId,                              // this tool starts a background job
-}),
-getReportResult: defineTool((input) => readReport(input.jobId), {   // check the job belongs to the caller
-  description: 'Reads a report job by its id: status and, when done, the report.',
-  usage: 'After the app says a report job has finished.',
-  input: z.object({ jobId: z.string() }),
-}),
-```
-
-`job` returns the job's ID (letters, digits, `_ . : -`, up to 128 characters). dopus tells the model the job runs in
-the background and that it will be told when it finishes, so it does not poll.
-
-**Client**: give the chat a `channel`. It holds functions, so create it in a client component, once:
-
-```tsx
-// components/agent/agent.tsx
-'use client'
-import { type AgentChannel, type AgentChatProps, AgentWidget } from './agent-chat'
-import { supabase } from '@/lib/supabase/client'
-
-const channel: AgentChannel = {
-  subscribe(finished) {
-    const ch = supabase
-      .channel('jobs', { config: { private: true } })
-      .on('broadcast', { event: 'job-done' }, ({ payload }) => finished(payload.jobId))
-      .subscribe()
-    return () => {
-      supabase.removeChannel(ch)
-    }
-  },
-}
-
-export function Agent(props: AgentChatProps) {
-  return <AgentWidget {...props} channel={channel} />
-}
-```
-
-Any source works: `new EventSource(url)`, a WebSocket, or a `setInterval` that asks your API which jobs finished. Call
-`finished(jobId)` for each one; return a function that stops listening. Then use `<Agent />` in your layout instead of
-`<AgentWidget />`.
-
-The channel does not have to be your Next.js app. The example has a separate worker server
-(`examples/next-app/worker/server.mjs`): the app hands it the job, the worker reports the result back to the app
-(`app/api/jobs/done`, with a shared secret), then rings the browser on its own SSE stream. Its browser tests
-(`pnpm --filter next-app test:ui:channel`) start both servers and check that the agent continues by itself, that a job
-finishing while an approval card is open waits for the answer and the approved call still runs, and that another
-user's chat is not rung.
-
-**How it is kept safe:**
-
-- **The channel is a doorbell, not a mailbox.** Only the job ID goes from the channel to the server. The text the model
-  sees ("Background job X has finished…") is written by the server, and the result comes from your tool, which checks
-  permissions. A forged or replayed event can at most make the agent look up a job the user can already read.
-- **Only this chat's jobs.** The UI reacts only to IDs that a tool in this conversation returned and that it has not
-  reported yet. Another tab, or a new chat, ignores them.
-- **Follow-ups are capped.** After `maxJobFollowUps` (default 3) automatic turns in a row, a finished job is shown in
-  the chat but the agent waits for the user's next message, so a job that starts another job cannot loop.
-- **Approvals still apply.** An automatic turn stops at the approval card like any other, and a finished job waits
-  while a card is open or answered but not yet sent back, so the follow-up never makes an approved call stale.
-
-**Limits:**
-
-- The follow-up runs only while the chat is open in a browser. If the user closes the tab, the result is still in your
-  app (show it there); the agent just does not act on it. Work that must continue without the user belongs in your
-  worker, not in the agent.
-- Each finished job costs one more model call.
-
-## Deploying
-
-The `dopus infra` commands write the deploy configuration that keeps the agent route streaming within each platform's
-limits. The agent still runs inside your Next.js app; nothing is moved elsewhere.
-
-**Vercel / any Node server.** Nothing extra. The route streams. Raise `maxDuration` in `app/api/agent/route.ts` if your plan allows it; the time budget follows it.
-
-**AWS (OpenNext / SST).**
-
-```bash
-pnpm dopus infra aws
-```
-
-The command writes `open-next.config.ts` with Lambda response streaming (`aws-lambda-streaming`) and installs `@opennextjs/aws`. It also prints an `sst.aws.Nextjs` snippet that passes your API key and `DOPUS_APPROVAL_SECRET` as SST secrets.
-
-SST reads OpenNext's streaming flag and sets the Function URL to `RESPONSE_STREAM`. Nothing is deployed for you.
-
-Things to know:
-
-- **Keep-alive.** While a tool runs and nothing else is sent, dopus writes an SSE comment (`: keep-alive`) every 15 s (`keepAlive` option). Clients ignore it. CloudFront, ALB and nginx time out on gaps between packets, not on total time, so a slow tool does not cut the stream.
-- **Turn length.** A turn still has to finish within the Lambda timeout. Behind CloudFront that is 60 s by default (up to 180 s with a quota increase). A bare Function URL allows up to 15 min. Keep the route's `maxDuration` equal to the Lambda timeout so the time budget matches.
-- **No API Gateway.** Don't put API Gateway HTTP APIs in front of `/api/agent`. They cap requests at 30 s and buffer the response.
-- **Long-running work.** Work that outlives a request, such as queues and background jobs, loses the request's cookies. Use `identify` and pass `ctx.user` on explicitly.
-
-`pnpm aws:emu` in this repo builds the example with OpenNext and invokes the Lambda handler locally through a stand-in for the streaming runtime. It checks that the response streams and that tools still read the caller's cookie.
-
-**Cloudflare Workers (OpenNext).**
-
-```bash
-pnpm dopus infra cloudflare
-```
-
-The command writes `open-next.config.ts` (`defineCloudflareConfig`), `wrangler.jsonc` (`nodejs_compat`) and `.dev.vars`. It also adds `cf:preview` and `cf:deploy` scripts, git-ignores `.open-next`, `.dev.vars` and `.wrangler`, and installs `@opennextjs/cloudflare` and `wrangler`.
-
-Wrangler reads `.dev.vars` instead of `.env.local`. So the command offers to copy your API key and `DOPUS_APPROVAL_SECRET` into `.dev.vars` for the local preview. The values are never printed.
-
-For production, set the same two values with `npx wrangler secret put`.
-
-Things to know:
-
-- **No wall-clock limit.** A Worker can keep streaming as long as the client stays connected, and waiting on the LLM does not count as CPU time.
-- **CPU time.** Rendering and tool code do count toward CPU time. Paid plans allow 30 s by default and up to 5 min with `limits.cpu_ms`. The free plan allows 10 ms per request, which a Next.js app usually exceeds.
-- **Node runtime.** OpenNext runs the Node.js runtime, so remove `export const runtime = 'edge'`.
-
-`pnpm cf:e2e` in this repo copies the example and runs `dopus infra cloudflare` on it. It then builds the copy, serves it with `wrangler dev` (local workerd) and runs the same e2e suite against it, covering cookies, ownership checks and signed approvals.
-
-**Google Cloud Run.**
-
-```bash
-pnpm dopus infra gcp
-```
-
-The command sets `output: 'standalone'` in `next.config` (it asks first). It writes a multi-stage `Dockerfile` that pins your pnpm or yarn version through corepack. It also writes a `.dockerignore` that keeps `.env*` and `.dev.vars` out of the image.
-
-It then prints the deploy commands: Secret Manager setup, and `gcloud run deploy --source . --timeout 3600 --set-secrets ...`.
-
-Things to know:
-
-- **Timeout.** A request may last up to 60 min (`--timeout 3600`; the default is 5 min). The timeout covers the whole streamed reply.
-- **Longer work.** Use Cloud Run Jobs and pass the user explicitly (`identify` → `ctx.user`), because there are no cookies outside the request.
-- **Build-time variables.** `.env` files are not copied into the image. If your build needs `NEXT_PUBLIC_*` values, pass them as build args.
-
-`pnpm gcp:e2e` in this repo copies the example and runs `dopus infra gcp` on it. It builds the image with Docker and runs it the way Cloud Run does (`PORT=8080`, secrets as env vars). It checks that a canary secret from `.env.local` is not in the image, then runs the e2e suite against the container.
+Work longer than a turn belongs outside the request: see [Background jobs](#background-jobs).
 
 ## Providers
 
@@ -1136,33 +973,7 @@ Things to know:
 
 To switch providers or models, change `model` in `agent.config.ts`. Any AI SDK model works there.
 
-### Through an AI gateway
-
-A gateway (Cloudflare AI Gateway, for example) sits between your app and the provider: one place for cost dashboards,
-logs, fallbacks and retries. Point the provider at it; dopus needs nothing else:
-
-```ts
-// agent.config.ts
-import { createAnthropic } from '@ai-sdk/anthropic'
-
-const anthropic = createAnthropic({
-  baseURL: `https://gateway.ai.cloudflare.com/v1/${process.env.CF_ACCOUNT_ID}/${process.env.CF_GATEWAY_ID}/anthropic/v1`,
-  headers: { 'cf-aig-authorization': `Bearer ${process.env.CF_AIG_TOKEN}` }, // for an authenticated gateway
-})
-
-export default defineAgent({
-  model: anthropic('claude-sonnet-5-5'),
-  // A function runs per request, so the gateway's log can say whose request it was.
-  callOptions: (request, { user }) => ({
-    headers: { 'cf-aig-metadata': JSON.stringify({ userId: user?.id ?? 'anonymous' }) },
-  }),
-  // ...
-})
-```
-
-`callOptions` as a function gets the request and the user from `identify`, and runs after `beforeRequest`. Per-user
-limits still belong in `beforeRequest` (a gateway's rate limit counts the whole gateway), and `onFinish` still reports
-each user's tokens. A gateway's response cache rarely helps a chat, since every request carries a different history.
+An AI gateway (Cloudflare AI Gateway, for example) works too; see [docs/recipes.md](docs/recipes.md).
 
 ## Testing without an API key
 
@@ -1186,9 +997,6 @@ pnpm example:ui                          # the chat UI in Chromium (Playwright):
 pnpm example:live                        # real model from examples/next-app/.env.local (costs cents)
 pnpm smoke                               # packed tarball → fresh app → init (older release) → update → next build
 pnpm templates:history                   # after changing a template: record its hash for `dopus update`
-pnpm aws:emu                             # OpenNext build → local Lambda streaming invoke
-pnpm cf:e2e                              # dopus infra cloudflare → wrangler dev (workerd) → e2e
-pnpm gcp:e2e                             # dopus infra gcp → docker build/run (Cloud Run style) → e2e
 ```
 
 Design notes: [`docs/design.md`](docs/design.md).

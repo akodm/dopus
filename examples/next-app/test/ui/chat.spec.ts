@@ -87,6 +87,22 @@ test.describe('background jobs', () => {
     await expect(chat(page).getByText('Working in the background')).toHaveCount(0)
   })
 
+  test('a job that finishes while the page is away is still picked up (polling channel)', async ({
+    page,
+    baseURL,
+  }) => {
+    await openChat(page, baseURL)
+    await send(page, 'export my orders')
+    await expect(chat(page).getByText('Working in the background: Start export')).toBeVisible()
+    // Leave before the job finishes (1.5 s) and come back after: no doorbell rang while the page was gone.
+    await page.goto('about:blank')
+    await page.waitForTimeout(2_500)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Open assistant' }).click()
+    await expect(chat(page).getByText('Background task finished')).toBeVisible({ timeout: 10_000 })
+    await expect(chat(page).getByText('✓ Get export')).toBeVisible()
+  })
+
   test('a reply that finishes while the widget is closed marks the launcher', async ({
     page,
     baseURL,

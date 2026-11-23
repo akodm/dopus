@@ -1,27 +1,17 @@
 'use client'
 
 import { approvals, attachments, toolLog } from 'dopus/plugins'
+import { pollingChannel, sseChannel } from 'dopus/react'
 import { useMemo, useState } from 'react'
 import { closeChat, loadChat } from '@/app/actions/chat'
-import {
-  type AgentChannel,
-  type AgentChatHistory,
-  type AgentChatProps,
-  AgentWidget,
-} from './agent-chat'
+import { type AgentChatHistory, type AgentChatProps, AgentWidget } from './agent-chat'
 
 /**
- * Finished background jobs arrive over SSE: the app's own (app/api/jobs), or the outside worker's stream when the
- * layout passes `jobEvents` (worker/server.mjs). With Supabase Realtime, only subscribe() changes.
+ * Finished background jobs: the app's own jobs by polling app/api/jobs/status (a job that finished during a reload is
+ * still picked up), or the outside worker's Server-Sent Events when the layout passes `jobEvents` (worker/server.mjs).
+ * With Supabase Realtime, write a channel whose subscribe() calls finished(jobId).
  */
-const sseChannel = (url: string): AgentChannel => ({
-  subscribe(finished) {
-    const events = new EventSource(url)
-    events.onmessage = (event) => finished(JSON.parse(event.data).jobId)
-    return () => events.close()
-  },
-})
-const appChannel = sseChannel('/api/jobs')
+const appChannel = pollingChannel('/api/jobs/status', { intervalMs: 1000 })
 
 /** The app's own storage for attached files (app/api/files); the message carries only the returned ID. */
 async function upload(file: File, { signal }: { signal: AbortSignal }) {

@@ -34,10 +34,16 @@ describe('dopus CLI (built)', () => {
     expect(run.stdout + run.stderr).toContain('No package.json')
   })
 
+  it('has no infra command anymore', () => {
+    const run = spawnSync('node', [cli, 'infra', 'aws'], { encoding: 'utf8' })
+    expect(run.status).toBe(1)
+    expect(run.stdout).not.toContain('infra')
+  })
+
   it('prints help for a subcommand --help', () => {
     for (const args of [
       ['init', '--help'],
-      ['infra', 'aws', '-h'],
+      ['update', '-h'],
     ]) {
       const run = spawnSync('node', [cli, ...args], { encoding: 'utf8' })
       expect(run.status).toBe(0)
